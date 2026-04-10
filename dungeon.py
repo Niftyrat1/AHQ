@@ -544,7 +544,7 @@ class Dungeon:
                         self._log(f"    Placed door at ({door_x}, {door_y})")
         
         # Roll passage end
-        end_roll = random.randint(2, 24)  # 2D12
+        end_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
         end_x, end_y = current_x + direction[0], current_y + direction[1]
         self._resolve_passage_end(end_x, end_y, direction, end_roll)
         
