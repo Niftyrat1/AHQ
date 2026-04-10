@@ -203,9 +203,13 @@ class Dungeon:
         for direction in exits:
             wall_x = x + direction[0]
             wall_y = y + direction[1]
-            if self.get_tile(wall_x, wall_y) == TileType.WALL:
+            tile = self.get_tile(wall_x, wall_y)
+            self._log(f"  Checking exit at ({wall_x}, {wall_y}): {tile.name}")
+            if tile == TileType.WALL:
                 self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
                 del self.grid[(wall_x, wall_y)]
+            elif tile != TileType.UNEXPLORED:
+                self._log(f"  Exit at ({wall_x}, {wall_y}) is {tile.name}, not a wall")
         
         # Get and remove this junction from pending
         exits = self.pending_junctions.pop(pos)
