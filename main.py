@@ -101,7 +101,9 @@ def main():
     
     def on_stairs_down():
         # Generate new dungeon level
-        game.dungeon = game._generate_dungeon(game.dungeon.level + 1)
+        from dungeon import Dungeon
+        game.dungeon_debug_log.clear()
+        game.dungeon = Dungeon(level=game.dungeon.level + 1, debug_log=game.dungeon_debug_log)
         game.monsters = []
         # Reset hero positions to stairs
         for hero in game.party:

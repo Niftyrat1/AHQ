@@ -213,7 +213,9 @@ class Dungeon:
         # Explore passages in all pending directions
         for direction in exits:
             self._log(f"  Exploring direction {direction}")
-            # Explore all tiles along this direction until we hit unexplored
+            # First generate the passage from this junction (for turns/T-junctions)
+            self.generate_passage_from(x, y, direction)
+            # Then explore the newly generated passage
             curr_x, curr_y = x, y
             tiles_explored = 0
             walls_explored = 0
@@ -266,11 +268,15 @@ class Dungeon:
                 # Passage beyond door
                 self.generate_passage_from(x, y, direction)
             else:
-                # Room beyond door
-                self._generate_room(x + direction[0], y + direction[1], direction)
+                # Room beyond door - pass door position, room center calculated inside
+                door_x = x + direction[0]  # Door is 1 tile from current
+                door_y = y + direction[1]
+                self._generate_room(door_x, door_y, direction, from_passage=True)
         else:
             # Passage door: ALWAYS leads to room
-            self._generate_room(x + direction[0], y + direction[1], direction)
+            door_x = x + direction[0]
+            door_y = y + direction[1]
+            self._generate_room(door_x, door_y, direction, from_passage=True)
         
         return True
     
@@ -286,8 +292,8 @@ class Dungeon:
         else:
             return (0, -1)  # North
     
-    def _generate_room(self, center_x: int, center_y: int, entrance_dir: Tuple[int, int],
-                        door_pos: Optional[Tuple[int, int]] = None, from_passage: bool = False):
+    def _generate_room(self, door_x: int, door_y: int, entrance_dir: Tuple[int, int],
+                        from_passage: bool = False):
         """Generate a room beyond a door."""
         # Roll room type
         roll = random.randint(1, 12)
@@ -309,33 +315,48 @@ class Dungeon:
         room_walls = []
         half_w, half_h = width // 2, height // 2
         
+        # Calculate room center so that room wall is adjacent to door (not overlapping)
+        # Door is at the passage wall, room starts 1 tile beyond in entrance direction
+        # Center is: door_pos + entrance_dir * (1 + half_size_in_that_direction)
+        if entrance_dir == (0, -1):  # North - room is north of door
+            center_x, center_y = door_x, door_y - 1 - half_h
+        elif entrance_dir == (0, 1):  # South
+            center_x, center_y = door_x, door_y + 1 + half_h
+        elif entrance_dir == (-1, 0):  # West
+            center_x, center_y = door_x - 1 - half_w, door_y
+        else:  # East
+            center_x, center_y = door_x + 1 + half_w, door_y
+        
         # When room comes from passage, ensure entrance side wall is intact (for door)
         entrance_wall_positions = set()
-        if from_passage and door_pos:
+        if from_passage:
             # Calculate which side of the room the entrance is on
             # and ensure that wall is placed (except at the door position)
-            opp_dir = (-entrance_dir[0], -entrance_dir[1])
             for x in range(center_x - half_w, center_x + half_w + 1):
                 for y in range(center_y - half_h, center_y + half_h + 1):
                     # Check if on the entrance side of the room
                     if entrance_dir == (0, -1):  # North side
-                        if y == center_y - half_h and (x, y) != door_pos:
+                        if y == center_y - half_h and (x, y) != (door_x, door_y):
                             entrance_wall_positions.add((x, y))
                     elif entrance_dir == (0, 1):  # South side
-                        if y == center_y + half_h and (x, y) != door_pos:
+                        if y == center_y + half_h and (x, y) != (door_x, door_y):
                             entrance_wall_positions.add((x, y))
                     elif entrance_dir == (-1, 0):  # West side
-                        if x == center_x - half_w and (x, y) != door_pos:
+                        if x == center_x - half_w and (x, y) != (door_x, door_y):
                             entrance_wall_positions.add((x, y))
                     elif entrance_dir == (1, 0):  # East side
-                        if x == center_x + half_w and (x, y) != door_pos:
+                        if x == center_x + half_w and (x, y) != (door_x, door_y):
                             entrance_wall_positions.add((x, y))
         
         for x in range(center_x - half_w, center_x + half_w + 1):
             for y in range(center_y - half_h, center_y + half_h + 1):
+                # Only place tiles where unexplored - never overwrite existing passage/rooms
+                if self.get_tile(x, y) != TileType.UNEXPLORED:
+                    continue
+                
                 if abs(x - center_x) == half_w or abs(y - center_y) == half_h:
-                    # Walls
-                    if self.get_tile(x, y) == TileType.UNEXPLORED or (x, y) in entrance_wall_positions:
+                    # Walls - only place if unexplored or forced for entrance
+                    if (x, y) in entrance_wall_positions:
                         self.grid[(x, y)] = TileType.WALL
                         room_walls.append((x, y))
                 else:
@@ -344,12 +365,12 @@ class Dungeon:
                     room_tiles.append((x, y))
                     self.explored.add((x, y))
         
-        # If from passage, place the door at the specified position
-        if from_passage and door_pos:
-            self.grid[door_pos] = TileType.DOOR_CLOSED
+        # If from passage, place the door at the entrance
+        if from_passage:
+            self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
             # Remove door position from walls if it was added
-            if door_pos in room_walls:
-                room_walls.remove(door_pos)
+            if (door_x, door_y) in room_walls:
+                room_walls.remove((door_x, door_y))
         
         # Store room for later revelation
         self.rooms.append(set(room_tiles + room_walls))
@@ -461,15 +482,13 @@ class Dungeon:
                     self.explored.add((current_x, current_y))
                 
                 # Place walls on both sides — skip if already floor/door/stairs
-                # Also skip walls at the last tile of the last section (where junctions will be)
-                is_last_tile = (section_idx == sections - 1 and tile_idx == 3)
-                if not is_last_tile:
-                    for side in self._get_both_perpendicular(direction):
-                        wall_x = current_x + side[0]
-                        wall_y = current_y + side[1]
-                        existing = self.get_tile(wall_x, wall_y)
-                        if existing in (TileType.UNEXPLORED, TileType.WALL):
-                            self.grid[(wall_x, wall_y)] = TileType.WALL
+                # Note: walls at last tile are placed here, then cleared later if it's a junction
+                for side in self._get_both_perpendicular(direction):
+                    wall_x = current_x + side[0]
+                    wall_y = current_y + side[1]
+                    existing = self.get_tile(wall_x, wall_y)
+                    if existing in (TileType.UNEXPLORED, TileType.WALL):
+                        self.grid[(wall_x, wall_y)] = TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
             feature_roll = random.randint(2, 24)  # 2D12
