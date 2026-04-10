@@ -459,14 +459,9 @@ class DungeonViewTk:
                 count_checked += 1
                 
                 # Check if walkable, visible (explored), and not occupied
-                tile = self.dungeon.get_tile(tx, ty)
-                walkable = self.dungeon.is_walkable(tx, ty)
-                explored = (tx, ty) in self.dungeon.explored
-                if not walkable:
-                    if explored and tile == TileType.WALL:
-                        print(f"[RANGE] Wall at ({tx},{ty}) marked as explored but not walkable - OK")
+                if not self.dungeon.is_walkable(tx, ty):
                     continue
-                if not explored:
+                if (tx, ty) not in self.dungeon.explored:
                     continue
                 count_walkable += 1
                 
