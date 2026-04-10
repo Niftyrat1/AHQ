@@ -475,9 +475,18 @@ class Dungeon:
                 current_x += direction[0]
                 current_y += direction[1]
                 
-                # Check for overlap
-                if self.get_tile(current_x, current_y) != TileType.UNEXPLORED:
-                    # Blocked
+                # Check for overlap - only block on UNEXPLORED, continue on existing floor
+                tile = self.get_tile(current_x, current_y)
+                if tile == TileType.UNEXPLORED:
+                    pass  # Can generate here
+                elif tile == TileType.FLOOR:
+                    # Already floor from previous generation, continue
+                    passage_tiles.append((current_x, current_y))
+                    if auto_explore:
+                        self.explored.add((current_x, current_y))
+                    continue
+                else:
+                    # Blocked by wall, door, stairs, etc.
                     self.grid[(current_x, current_y)] = TileType.PASSAGE_END
                     return passage_tiles
                 
