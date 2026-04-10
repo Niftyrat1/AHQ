@@ -89,6 +89,8 @@ class Dungeon:
         self.grid[(9, 0)] = TileType.WALL
         self.grid[(9, -1)] = TileType.WALL  # North side
         self.grid[(9, 1)] = TileType.WALL   # South side
+        # Make walls visible at start
+        self.explored.update([(9, 0), (9, -1), (9, 1)])
         
         # Generate North and South passages but don't explore them yet
         # They'll be revealed when hero steps on the T-junction
