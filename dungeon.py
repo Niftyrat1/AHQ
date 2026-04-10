@@ -205,14 +205,21 @@ class Dungeon:
         self._log(f"  ALL pending_junctions: {dict(self.pending_junctions)}")
         
         # Clear any blocking walls in the exit directions first
+        # But don't clear if this is a room wall (part of room boundary)
         for direction in exits:
             wall_x = x + direction[0]
             wall_y = y + direction[1]
             tile = self.get_tile(wall_x, wall_y)
             self._log(f"  Checking exit at ({wall_x}, {wall_y}): {tile.name}")
             if tile == TileType.WALL:
-                self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
-                del self.grid[(wall_x, wall_y)]
+                # Check if this wall is part of a room (surrounded by other room tiles)
+                # If so, don't clear it - it's a room wall
+                is_room_wall = self._is_room_wall(wall_x, wall_y)
+                if is_room_wall:
+                    self._log(f"  NOT clearing wall at ({wall_x}, {wall_y}) - it's a room wall")
+                else:
+                    self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
+                    del self.grid[(wall_x, wall_y)]
             elif tile != TileType.UNEXPLORED:
                 self._log(f"  Exit at ({wall_x}, {wall_y}) is {tile.name}, not a wall")
         
