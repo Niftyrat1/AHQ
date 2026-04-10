@@ -95,9 +95,7 @@ class Dungeon:
         self.generate_passage_from(8, 0, (0, 1), auto_explore=False)    # South
         
         # Register these as pending - will be explored when hero steps on junction
-        self.pending_junctions = {
-            (8, 0): [(0, -1), (0, 1)]  # North and South passages pending
-        }
+        self.pending_junctions[(8, 0)] = [(0, -1), (0, 1)]  # North and South passages pending
     
     def get_tile(self, x: int, y: int) -> TileType:
         """Get tile at position."""
@@ -172,8 +170,12 @@ class Dungeon:
     def check_and_generate_junction(self, x: int, y: int) -> bool:
         """Check if position is a pending junction and generate/explore its exits."""
         pos = (x, y)
-        if not hasattr(self, 'pending_junctions') or pos not in self.pending_junctions:
-            self._log(f"check_and_generate_junction at {pos}: NO junction")
+        if not hasattr(self, 'pending_junctions'):
+            self._log(f"check_and_generate_junction at {pos}: NO pending_junctions attribute")
+            return False
+        if pos not in self.pending_junctions:
+            pending_list = list(self.pending_junctions.keys())[:5]  # Show first 5
+            self._log(f"check_and_generate_junction at {pos}: NOT in pending_junctions (has {pending_list})")
             return False
         
         exits = self.pending_junctions[pos]
@@ -194,6 +196,7 @@ class Dungeon:
             junc_type = f"{len(exits)}-way junction"
         
         self._log(f"check_and_generate_junction at {pos}: {junc_type} with exits {exits}")
+        self._log(f"  ALL pending_junctions: {dict(self.pending_junctions)}")
         
         # Clear any blocking walls in the exit directions first
         for direction in exits:
@@ -203,8 +206,12 @@ class Dungeon:
                 self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
                 del self.grid[(wall_x, wall_y)]
         
+        # Get and remove this junction from pending
+        exits = self.pending_junctions.pop(pos)
+        self._log(f"  Removed {pos} from pending_junctions, remaining: {list(self.pending_junctions.keys())}")
+        
         # Explore passages in all pending directions
-        for direction in self.pending_junctions.pop(pos):
+        for direction in exits:
             self._log(f"  Exploring direction {direction}")
             # Explore all tiles along this direction until we hit unexplored
             curr_x, curr_y = x, y
@@ -231,8 +238,11 @@ class Dungeon:
                             walls_explored += 1
                             self._log(f"      Adjacent wall at {adj_pos}: {adj_tile.name}")
             self._log(f"  Total: {tiles_explored} tiles, {walls_explored} adjacent tiles explored")
+            self._log(f"  After exploring {direction}, ALL pending_junctions: {dict(self.pending_junctions)}")
         # Also re-explore from current position after all directions processed
+        self._log(f"  Before _explore_from, ALL pending_junctions: {dict(self.pending_junctions)}")
         self._explore_from(x, y)
+        self._log(f"  Final ALL pending_junctions: {dict(self.pending_junctions)}")
         return True
     
     def open_door(self, x: int, y: int) -> bool:
@@ -276,7 +286,8 @@ class Dungeon:
         else:
             return (0, -1)  # North
     
-    def _generate_room(self, center_x: int, center_y: int, entrance_dir: Tuple[int, int]):
+    def _generate_room(self, center_x: int, center_y: int, entrance_dir: Tuple[int, int],
+                        door_pos: Optional[Tuple[int, int]] = None, from_passage: bool = False):
         """Generate a room beyond a door."""
         # Roll room type
         roll = random.randint(1, 12)
@@ -298,11 +309,33 @@ class Dungeon:
         room_walls = []
         half_w, half_h = width // 2, height // 2
         
+        # When room comes from passage, ensure entrance side wall is intact (for door)
+        entrance_wall_positions = set()
+        if from_passage and door_pos:
+            # Calculate which side of the room the entrance is on
+            # and ensure that wall is placed (except at the door position)
+            opp_dir = (-entrance_dir[0], -entrance_dir[1])
+            for x in range(center_x - half_w, center_x + half_w + 1):
+                for y in range(center_y - half_h, center_y + half_h + 1):
+                    # Check if on the entrance side of the room
+                    if entrance_dir == (0, -1):  # North side
+                        if y == center_y - half_h and (x, y) != door_pos:
+                            entrance_wall_positions.add((x, y))
+                    elif entrance_dir == (0, 1):  # South side
+                        if y == center_y + half_h and (x, y) != door_pos:
+                            entrance_wall_positions.add((x, y))
+                    elif entrance_dir == (-1, 0):  # West side
+                        if x == center_x - half_w and (x, y) != door_pos:
+                            entrance_wall_positions.add((x, y))
+                    elif entrance_dir == (1, 0):  # East side
+                        if x == center_x + half_w and (x, y) != door_pos:
+                            entrance_wall_positions.add((x, y))
+        
         for x in range(center_x - half_w, center_x + half_w + 1):
             for y in range(center_y - half_h, center_y + half_h + 1):
                 if abs(x - center_x) == half_w or abs(y - center_y) == half_h:
                     # Walls
-                    if self.get_tile(x, y) == TileType.UNEXPLORED:
+                    if self.get_tile(x, y) == TileType.UNEXPLORED or (x, y) in entrance_wall_positions:
                         self.grid[(x, y)] = TileType.WALL
                         room_walls.append((x, y))
                 else:
@@ -310,6 +343,13 @@ class Dungeon:
                     self.grid[(x, y)] = TileType.FLOOR
                     room_tiles.append((x, y))
                     self.explored.add((x, y))
+        
+        # If from passage, place the door at the specified position
+        if from_passage and door_pos:
+            self.grid[door_pos] = TileType.DOOR_CLOSED
+            # Remove door position from walls if it was added
+            if door_pos in room_walls:
+                room_walls.remove(door_pos)
         
         # Store room for later revelation
         self.rooms.append(set(room_tiles + room_walls))
@@ -398,12 +438,14 @@ class Dungeon:
         else:
             sections = 3
         
+        self._log(f"Generating passage from ({x},{y}) direction {direction}: {sections} section(s) (roll {roll})")
+        
         passage_tiles = []
         current_x, current_y = x, y
         
-        for _ in range(sections):
+        for section_idx in range(sections):
             # Each section is 4 tiles
-            for _ in range(4):
+            for tile_idx in range(4):
                 current_x += direction[0]
                 current_y += direction[1]
                 
@@ -418,13 +460,16 @@ class Dungeon:
                 if auto_explore:
                     self.explored.add((current_x, current_y))
                 
-                # Place walls on both sides — only skip if already floor/door/stairs
-                for side in self._get_both_perpendicular(direction):
-                    wall_x = current_x + side[0]
-                    wall_y = current_y + side[1]
-                    existing = self.get_tile(wall_x, wall_y)
-                    if existing in (TileType.UNEXPLORED, TileType.WALL):
-                        self.grid[(wall_x, wall_y)] = TileType.WALL
+                # Place walls on both sides — skip if already floor/door/stairs
+                # Also skip walls at the last tile of the last section (where junctions will be)
+                is_last_tile = (section_idx == sections - 1 and tile_idx == 3)
+                if not is_last_tile:
+                    for side in self._get_both_perpendicular(direction):
+                        wall_x = current_x + side[0]
+                        wall_y = current_y + side[1]
+                        existing = self.get_tile(wall_x, wall_y)
+                        if existing in (TileType.UNEXPLORED, TileType.WALL):
+                            self.grid[(wall_x, wall_y)] = TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
             feature_roll = random.randint(2, 24)  # 2D12
@@ -456,20 +501,31 @@ class Dungeon:
         
         # Cap the end of the passage with walls perpendicular to travel
         # Place walls on sides of the end tile
+        end_tile = self.get_tile(end_x, end_y)
+        is_dead_end_or_stairs = end_tile in (TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT)
+        is_t_junction = end_tile == TileType.T_JUNCTION
+        is_turn = end_tile == TileType.FLOOR  # Turns are FLOOR with pending junction
+        
         for side in self._get_both_perpendicular(direction):
             wall_x = end_x + side[0]
             wall_y = end_y + side[1]
-            if self.get_tile(wall_x, wall_y) == TileType.UNEXPLORED:
+            # Always place walls for dead ends/stairs; never for T-junctions or turns (exits must be clear)
+            if is_dead_end_or_stairs:
+                if self.get_tile(wall_x, wall_y) in (TileType.UNEXPLORED, TileType.WALL):
+                    self.grid[(wall_x, wall_y)] = TileType.WALL
+                    self._log(f"    Placed side wall at ({wall_x}, {wall_y})")
+            elif not is_t_junction and not is_turn and self.get_tile(wall_x, wall_y) == TileType.UNEXPLORED:
                 self.grid[(wall_x, wall_y)] = TileType.WALL
+                self._log(f"    Placed side wall at ({wall_x}, {wall_y})")
         
-        # If the end is a dead end (not a junction/turn), cap it with a wall
-        end_tile = self.get_tile(end_x, end_y)
-        if end_tile == TileType.PASSAGE_END:
-            # Dead end - cap it
+        # If the end is a dead end or stairs, cap it with a wall in the forward direction
+        if is_dead_end_or_stairs:
+            # Cap it with a wall
             beyond_x = end_x + direction[0]
             beyond_y = end_y + direction[1]
-            if self.get_tile(beyond_x, beyond_y) == TileType.UNEXPLORED:
+            if self.get_tile(beyond_x, beyond_y) in (TileType.UNEXPLORED, TileType.WALL):
                 self.grid[(beyond_x, beyond_y)] = TileType.WALL
+                self._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
         
         return passage_tiles
     
@@ -492,6 +548,8 @@ class Dungeon:
         if not hasattr(self, 'pending_junctions'):
             self.pending_junctions = {}
         
+        self._log(f"  Passage end at ({x},{y}): roll {roll}")
+        
         if roll <= 3 or 12 <= roll <= 14 or roll >= 23:
             # T-junction (2-3, 12-14, 23-14): side exits only, wall blocks forward
             self.grid[(x, y)] = TileType.FLOOR
@@ -507,6 +565,8 @@ class Dungeon:
             # Register side exits as pending
             perp_dirs = self._get_both_perpendicular(direction)
             self.pending_junctions[(x, y)] = list(perp_dirs)
+            self._log(f"    Generated T_JUNCTION at ({x}, {y}), side exits: {list(perp_dirs)}")
+            self._log(f"    pending_junctions now has: {list(self.pending_junctions.keys())}")
         elif 4 <= roll <= 8:
             # Dead end (4-8)
             self.grid[(x, y)] = TileType.PASSAGE_END
@@ -525,6 +585,22 @@ class Dungeon:
                 right_dir = (1, 0)
             self.pending_junctions[(x, y)] = [right_dir]
             self._log(f"    Generated RIGHT_TURN at ({x}, {y}), continues {right_dir}")
+            self._log(f"    pending_junctions now has: {list(self.pending_junctions.keys())}")
+            # Clear the exit wall (right side) so hero can walk there
+            right_x, right_y = x + right_dir[0], y + right_dir[1]
+            if self.get_tile(right_x, right_y) == TileType.WALL:
+                del self.grid[(right_x, right_y)]
+                self._log(f"    Cleared right exit wall at ({right_x}, {right_y})")
+            # Place walls: forward direction and left side (opposite of right turn)
+            forward_x, forward_y = x + direction[0], y + direction[1]
+            left_dir = (-right_dir[0], -right_dir[1])  # Opposite of right direction
+            left_x, left_y = x + left_dir[0], y + left_dir[1]
+            if self.get_tile(forward_x, forward_y) == TileType.UNEXPLORED:
+                self.grid[(forward_x, forward_y)] = TileType.WALL
+                self._log(f"    Placed forward wall at ({forward_x}, {forward_y})")
+            if self.get_tile(left_x, left_y) == TileType.UNEXPLORED:
+                self.grid[(left_x, left_y)] = TileType.WALL
+                self._log(f"    Placed left wall at ({left_x}, {left_y})")
         elif 15 <= roll <= 17:
             # Left turn (15-17) - single exit to the left
             self.grid[(x, y)] = TileType.FLOOR
@@ -539,16 +615,36 @@ class Dungeon:
                 left_dir = (-1, 0)
             self.pending_junctions[(x, y)] = [left_dir]
             self._log(f"    Generated LEFT_TURN at ({x}, {y}), continues {left_dir}")
-        elif 18 <= roll <= 19:
-            # Stairs down (18-19)
+            # Clear the exit wall (left side) so hero can walk there
+            left_x, left_y = x + left_dir[0], y + left_dir[1]
+            if self.get_tile(left_x, left_y) == TileType.WALL:
+                del self.grid[(left_x, left_y)]
+                self._log(f"    Cleared left exit wall at ({left_x}, {left_y})")
+            # Place walls: forward direction and right side (opposite of left turn)
+            forward_x, forward_y = x + direction[0], y + direction[1]
+            right_dir = (-left_dir[0], -left_dir[1])  # Opposite of left direction
+            right_x, right_y = x + right_dir[0], y + right_dir[1]
+            if self.get_tile(forward_x, forward_y) == TileType.UNEXPLORED:
+                self.grid[(forward_x, forward_y)] = TileType.WALL
+                self._log(f"    Placed forward wall at ({forward_x}, {forward_y})")
+            if self.get_tile(right_x, right_y) == TileType.UNEXPLORED:
+                self.grid[(right_x, right_y)] = TileType.WALL
+                self._log(f"    Placed right wall at ({right_x}, {right_y})")
+        elif 18 <= roll <= 20:
+            # Stairs down (18-20)
             self.grid[(x, y)] = TileType.STAIRS_DOWN
             self._log(f"    Generated STAIRS_DOWN at ({x}, {y})")
-        elif 20 <= roll <= 22:
-            # Stairs out (20-22)
+        elif roll == 21:
+            # Stairs out (21)
             self.grid[(x, y)] = TileType.STAIRS_OUT
             self._log(f"    Generated STAIRS_OUT at ({x}, {y})")
+        elif roll == 22:
+            # Trap (22)
+            self.grid[(x, y)] = TileType.FLOOR
+            self._log(f"    Generated TRAP at ({x}, {y})")
+        # Roll 24 is T-junction (handled above)
     
-    def check_line_of_sight(self, x1: int, y1: int, x2: int, y2: int) -> bool:
+    def _has_los(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check if there's clear line of sight between two points."""
         # Simple Bresenham line algorithm
         dx = abs(x2 - x1)
@@ -594,6 +690,12 @@ class Dungeon:
     
     def to_dict(self) -> dict:
         """Convert dungeon to dictionary for saving."""
+        # Convert pending_junctions to string format for JSON serialization
+        pending = {}
+        for pos, directions in self.pending_junctions.items():
+            key = f"{pos[0]},{pos[1]}"
+            pending[key] = [f"{d[0]},{d[1]}" for d in directions]
+        
         return {
             "size": self.size,
             "grid": {f"{x},{y}": t.name for (x, y), t in self.grid.items()},
@@ -601,7 +703,8 @@ class Dungeon:
             "doors": {f"{x},{y}": v for (x, y), v in self.doors.items()},
             "monsters": {f"{x},{y}": v for (x, y), v in self.monsters.items()},
             "treasure": {f"{x},{y}": v for (x, y), v in self.treasure.items()},
-            "hero_start": self.hero_start
+            "hero_start": self.hero_start,
+            "pending_junctions": pending
         }
     
     @classmethod
@@ -633,6 +736,11 @@ class Dungeon:
         for key, val in data.get("treasure", {}).items():
             x, y = map(int, key.split(","))
             dungeon.treasure[(x, y)] = val
+        
+        dungeon.pending_junctions = {}
+        for key, directions in data.get("pending_junctions", {}).items():
+            x, y = map(int, key.split(","))
+            dungeon.pending_junctions[(x, y)] = [tuple(map(int, d.split(","))) for d in directions]
         
         dungeon.hero_start = tuple(data.get("hero_start", (0, 0)))
         

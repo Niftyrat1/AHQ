@@ -17,12 +17,14 @@ class DungeonViewTk:
     """Dungeon exploration view using tkinter canvas."""
     
     def __init__(self, root: tk.Tk, on_hero_move=None, on_hero_attack=None,
-                 on_end_phase=None, on_exit_dungeon=None):
+                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None):
         self.root = root
         self.on_hero_move = on_hero_move
         self.on_hero_attack = on_hero_attack
         self.on_end_phase = on_end_phase
         self.on_exit_dungeon = on_exit_dungeon
+        self.on_stairs_down = on_stairs_down
+        self.on_get_hero_acted = on_get_hero_acted
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -140,18 +142,21 @@ class DungeonViewTk:
         canvas_width = max(400, self.canvas.winfo_width())
         canvas_height = max(300, self.canvas.winfo_height())
         
-        self.camera_x = int(avg_x * TILE_SIZE - canvas_width // 2)
-        # Shift down by 2 tiles to show North wall above hero
-        self.camera_y = int(avg_y * TILE_SIZE - canvas_height // 2 + TILE_SIZE * 2)
+        # Camera in grid coordinates (not pixels)
+        calc_x = int(avg_x - canvas_width // 2 // TILE_SIZE)
+        calc_y = int(avg_y - canvas_height // 2 // TILE_SIZE + 2)
+        print(f"[CAMERA] avg=({avg_x},{avg_y}), canvas={canvas_width}x{canvas_height}, calculated=({calc_x},{calc_y}), current=({self.camera_x},{self.camera_y})")
+        self.camera_x = calc_x
+        self.camera_y = calc_y
     
     def _grid_to_canvas(self, x: int, y: int) -> Tuple[int, int]:
         """Convert grid coordinates to canvas coordinates."""
-        return (x * TILE_SIZE - self.camera_x, y * TILE_SIZE - self.camera_y)
+        return ((x - self.camera_x) * TILE_SIZE, (y - self.camera_y) * TILE_SIZE)
     
     def _canvas_to_grid(self, cx: int, cy: int) -> Optional[Tuple[int, int]]:
         """Convert canvas coordinates to grid coordinates."""
-        x = (cx + self.camera_x) // TILE_SIZE
-        y = (cy + self.camera_y) // TILE_SIZE
+        x = cx // TILE_SIZE + self.camera_x
+        y = cy // TILE_SIZE + self.camera_y
         return (int(x), int(y))
     
     def _on_canvas_click(self, event):
@@ -167,6 +172,9 @@ class DungeonViewTk:
             if hero.x == x and hero.y == y and not hero.is_dead:
                 self.selected_hero = hero
                 self._update_display()
+                # Only show movement range if hero hasn't acted yet
+                if self.on_get_hero_acted and not self.on_get_hero_acted(hero.id):
+                    self._show_movement_range(hero)
                 return
         
         if not self.selected_hero or self.selected_hero.is_dead:
@@ -195,10 +203,20 @@ class DungeonViewTk:
                 self._update_display()
             return
         
+        # Check for stairs down
+        if tile == TileType.STAIRS_DOWN:
+            from tkinter import messagebox
+            if messagebox.askyesno("Stairs Down", f"Go down the stairs to the next level?"):
+                if self.on_stairs_down:
+                    self.on_stairs_down()
+            return
+        
         # Check for stairs out
         if tile == TileType.STAIRS_OUT:
-            if self.on_exit_dungeon:
-                self.on_exit_dungeon()
+            from tkinter import messagebox
+            if messagebox.askyesno("Exit Dungeon", f"Exit the dungeon?"):
+                if self.on_exit_dungeon:
+                    self.on_exit_dungeon()
             return
         
         # Try to move
@@ -223,6 +241,7 @@ class DungeonViewTk:
                     self.selected_hero.x = x
                     self.selected_hero.y = y
                     self.dungeon._explore_from(x, y)
+                    self._clear_movement_range()
                     self._update_display()
             else:
                 self._show_message("Square occupied!")
@@ -262,10 +281,9 @@ class DungeonViewTk:
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
         
-        # Calculate visible range
-        # Remove the max(0,...) clamps — dungeon coords can be negative
-        start_x = self.camera_x // TILE_SIZE - 1
-        start_y = self.camera_y // TILE_SIZE - 1
+        # Calculate visible range (camera is in grid coordinates)
+        start_x = self.camera_x - 1
+        start_y = self.camera_y - 1
         end_x = start_x + canvas_width // TILE_SIZE + 2
         end_y = start_y + canvas_height // TILE_SIZE + 2
         
@@ -295,15 +313,17 @@ class DungeonViewTk:
                     elif tile == TileType.DOOR_CLOSED:
                         color = "#8b5a2b"
                         outline = "#6b4a1b"
-                    elif tile == TileType.DOOR_OPEN:
-                        color = "#4a4a55"
-                        outline = "#8b5a2b"
-                    elif tile == TileType.STAIRS_DOWN:
-                        color = "#4a4a55"
-                        outline = "#aaa"
                     elif tile == TileType.STAIRS_OUT:
                         color = "#c8b896"
                         outline = "#a89876"
+                    elif tile == TileType.STAIRS_DOWN:
+                        # Check if this is the starting stairs at (0,0)
+                        if (x, y) == (0, 0):
+                            color = "#32CD32"  # Green for starting stairs
+                            outline = "#228B22"
+                        else:
+                            color = "#FFD700"  # Gold/yellow for stairs down
+                            outline = "#B8860B"
                     else:
                         color = "#3a3a45"
                         outline = "#2a2a35"
@@ -318,6 +338,14 @@ class DungeonViewTk:
                     elif tile == TileType.STAIRS_OUT:
                         self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
                                                text="OUT", fill="#222", font=("Arial", 8))
+                    elif tile == TileType.STAIRS_DOWN:
+                        # Check if this is the starting stairs at (0,0)
+                        if (x, y) == (0, 0):
+                            self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
+                                                   text="START", fill="#222", font=("Arial", 7))
+                        else:
+                            self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
+                                                   text="DOWN", fill="#222", font=("Arial", 7))
         
         # Draw monsters
         for m in self.monsters:
@@ -397,6 +425,101 @@ class DungeonViewTk:
             self.end_phase_btn.config(text="End Hero Phase", state=tk.NORMAL)
         else:
             self.end_phase_btn.config(text="GM Phase...", state=tk.DISABLED)
+    
+    def _show_movement_range(self, hero):
+        """Highlight tiles the hero can move to."""
+        print(f"[DEBUG] _show_movement_range called for {hero.name} at ({hero.x},{hero.y})")
+        self._clear_movement_range()
+        self.movement_highlights = []
+        
+        # Get hero color by class (same as rendering)
+        base_color = "#68c" if hero.class_type == "Warrior" else "#a6c"
+        # Lighten the color for the highlight
+        highlight_color = self._lighten_color(base_color, 0.3)
+        print(f"[DEBUG] Hero class: {hero.class_type}, base_color: {base_color}")
+        
+        # Find all tiles within movement range
+        print(f"[DEBUG] Checking tiles within speed {hero.speed}, canvas size: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
+        count_checked = 0
+        count_walkable = 0
+        count_onscreen = 0
+        count_drawn = 0
+        for dx in range(-hero.speed, hero.speed + 1):
+            for dy in range(-hero.speed, hero.speed + 1):
+                if abs(dx) + abs(dy) > hero.speed or (dx == 0 and dy == 0):
+                    continue
+                
+                tx, ty = hero.x + dx, hero.y + dy
+                count_checked += 1
+                
+                # Check if walkable, visible (explored), and not occupied
+                if not self.dungeon.is_walkable(tx, ty):
+                    continue
+                if (tx, ty) not in self.dungeon.explored:
+                    continue
+                count_walkable += 1
+                
+                occupied = False
+                for h in self.heroes:
+                    if not h.is_dead and h.x == tx and h.y == ty:
+                        occupied = True
+                        break
+                for m in self.monsters:
+                    if not m.is_dead and m.x == tx and m.y == ty:
+                        occupied = True
+                        break
+                
+                if occupied:
+                    continue
+                
+                # Draw highlight circle
+                px = (tx - self.camera_x) * TILE_SIZE + TILE_SIZE // 2
+                py = (ty - self.camera_y) * TILE_SIZE + TILE_SIZE // 2
+                
+                # Only draw if on screen (skip check if canvas not ready)
+                canvas_w = self.canvas.winfo_width()
+                canvas_h = self.canvas.winfo_height()
+                # If canvas size is 1 (not ready), assume on screen
+                on_screen = (canvas_w <= 1) or (0 <= px < canvas_w and 0 <= py < canvas_h)
+                # Log first few walkable tiles
+                if count_walkable <= 5 and not occupied:
+                    print(f"[DEBUG] Walkable tile ({tx},{ty}) -> pixel ({px},{py}), camera ({self.camera_x},{self.camera_y}), canvas {canvas_w}x{canvas_h}, onscreen={on_screen}")
+                if on_screen:
+                    count_onscreen += 1
+                    # Draw a larger filled circle with border
+                    circle = self.canvas.create_oval(
+                        px - 10, py - 10, px + 10, py + 10,
+                        fill=highlight_color, outline=base_color, width=3,
+                        tags="movement_range"
+                    )
+                    self.canvas.tag_raise(circle)  # Ensure circle is on top
+                    self.movement_highlights.append(circle)
+                    count_drawn += 1
+        print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
+    
+    def _clear_movement_range(self):
+        """Clear movement range highlights."""
+        if hasattr(self, 'movement_highlights'):
+            for item in self.movement_highlights:
+                self.canvas.delete(item)
+        self.movement_highlights = []
+    
+    def _lighten_color(self, color, factor):
+        """Lighten a hex color by a factor."""
+        # Remove # if present
+        color = color.lstrip('#')
+        # Convert 3-char hex to 6-char (e.g., #68c -> #6688cc)
+        if len(color) == 3:
+            color = color[0] + color[0] + color[1] + color[1] + color[2] + color[2]
+        # Convert to RGB
+        r = int(color[0:2], 16)
+        g = int(color[2:4], 16)
+        b = int(color[4:6], 16)
+        # Lighten
+        r = min(255, int(r + (255 - r) * factor))
+        g = min(255, int(g + (255 - g) * factor))
+        b = min(255, int(b + (255 - b) * factor))
+        return f"#{r:02x}{g:02x}{b:02x}"
     
     def add_log_message(self, message: str):
         """Add message to combat log."""

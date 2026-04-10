@@ -57,6 +57,35 @@
       ],
       "is_dead": false,
       "is_ko": false
+    },
+    {
+      "id": "soren_silverhand_8762",
+      "name": "Soren Silverhand",
+      "race": "Human",
+      "class_type": "Warrior",
+      "ws": 7,
+      "bs": 6,
+      "strength": 6,
+      "toughness": 6,
+      "speed": 9,
+      "bravery": 6,
+      "intelligence": 10,
+      "max_wounds": 3,
+      "current_wounds": 3,
+      "max_fate": 2,
+      "current_fate": 2,
+      "gold": 70,
+      "experience": 0,
+      "total_pv": 0,
+      "equipment": [
+        {
+          "name": "Dagger",
+          "type": "weapon",
+          "equipped": true
+        }
+      ],
+      "is_dead": false,
+      "is_ko": false
     }
   ]
 }

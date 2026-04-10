@@ -99,11 +99,27 @@ def main():
         game._exit_dungeon()
         switch_to_tavern()
     
+    def on_stairs_down():
+        # Generate new dungeon level
+        game.dungeon = game._generate_dungeon(game.dungeon.level + 1)
+        game.monsters = []
+        # Reset hero positions to stairs
+        for hero in game.party:
+            hero.x, hero.y = game.dungeon.hero_start
+        dungeon_view.setup_dungeon(game.dungeon, game.party)
+        dungeon_view.update_state()
+        dungeon_view.add_log_message(f"Descended to dungeon level {game.dungeon.level}!")
+    
+    def on_get_hero_acted(hero_id):
+        return hero_id in game.heroes_acted_this_phase
+    
     tavern.on_begin_quest = on_begin_quest
     dungeon_view.on_hero_move = on_hero_move
     dungeon_view.on_hero_attack = on_hero_attack
     dungeon_view.on_end_phase = on_end_phase
     dungeon_view.on_exit_dungeon = on_exit_dungeon
+    dungeon_view.on_stairs_down = on_stairs_down
+    dungeon_view.on_get_hero_acted = on_get_hero_acted
     
     def switch_to_dungeon():
         nonlocal current_screen, dungeon_view
@@ -116,6 +132,8 @@ def main():
             dungeon_view.on_hero_attack = on_hero_attack
             dungeon_view.on_end_phase = on_end_phase
             dungeon_view.on_exit_dungeon = on_exit_dungeon
+            dungeon_view.on_stairs_down = on_stairs_down
+            dungeon_view.on_get_hero_acted = on_get_hero_acted
         dungeon_view.show()
         dungeon_view.setup_dungeon(game.dungeon, game.party)
         dungeon_view.update_state()
