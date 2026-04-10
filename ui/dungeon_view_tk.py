@@ -221,7 +221,10 @@ class DungeonViewTk:
         
         # Try to move
         dist = self.dungeon.get_distance(self.selected_hero.x, self.selected_hero.y, x, y)
-        if dist <= self.selected_hero.speed and self.dungeon.is_walkable(x, y):
+        tile = self.dungeon.get_tile(x, y)
+        walkable = self.dungeon.is_walkable(x, y)
+        print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, speed: {self.selected_hero.speed}")
+        if dist <= self.selected_hero.speed and walkable:
             # Check not occupied
             occupied = False
             for h in self.heroes:
@@ -456,9 +459,14 @@ class DungeonViewTk:
                 count_checked += 1
                 
                 # Check if walkable, visible (explored), and not occupied
-                if not self.dungeon.is_walkable(tx, ty):
+                tile = self.dungeon.get_tile(tx, ty)
+                walkable = self.dungeon.is_walkable(tx, ty)
+                explored = (tx, ty) in self.dungeon.explored
+                if not walkable:
+                    if explored and tile == TileType.WALL:
+                        print(f"[RANGE] Wall at ({tx},{ty}) marked as explored but not walkable - OK")
                     continue
-                if (tx, ty) not in self.dungeon.explored:
+                if not explored:
                     continue
                 count_walkable += 1
                 

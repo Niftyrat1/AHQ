@@ -97,6 +97,9 @@ class Dungeon:
         
         # Register these as pending - will be explored when hero steps on junction
         self.pending_junctions[(8, 0)] = [(0, -1), (0, 1)]  # North and South passages pending
+        
+        # Verify walls are in place
+        self._log(f"  After setup: (9,0) is {self.get_tile(9, 0).name}, (9,-1) is {self.get_tile(9, -1).name}, (9,1) is {self.get_tile(9, 1).name}")
     
     def get_tile(self, x: int, y: int) -> TileType:
         """Get tile at position."""
@@ -486,8 +489,8 @@ class Dungeon:
                         self.explored.add((current_x, current_y))
                     continue
                 else:
-                    # Blocked by wall, door, stairs, etc.
-                    self.grid[(current_x, current_y)] = TileType.PASSAGE_END
+                    # Blocked by wall, door, stairs, etc. - don't overwrite, just stop
+                    self._log(f"    Blocked at ({current_x}, {current_y}) by {tile.name}, stopping")
                     return passage_tiles
                 
                 self.grid[(current_x, current_y)] = TileType.FLOOR
@@ -514,18 +517,22 @@ class Dungeon:
                 side_dir = self._get_perpendicular(direction)
                 door_x = current_x + side_dir[0]
                 door_y = current_y + side_dir[1]
+                self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
                 if self.get_tile(door_x, door_y) == TileType.UNEXPLORED:
                     self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                     self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
+                    self._log(f"    Placed 1 door at ({door_x}, {door_y})")
             elif 20 <= feature_roll <= 21:
                 # 2 doors on sides
                 side_dirs = self._get_both_perpendicular(direction)
                 for side_dir in side_dirs:
                     door_x = current_x + side_dir[0]
                     door_y = current_y + side_dir[1]
+                    self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
                     if self.get_tile(door_x, door_y) == TileType.UNEXPLORED:
                         self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                         self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
+                        self._log(f"    Placed door at ({door_x}, {door_y})")
         
         # Roll passage end
         end_roll = random.randint(2, 24)  # 2D12
@@ -556,9 +563,13 @@ class Dungeon:
             # Cap it with a wall
             beyond_x = end_x + direction[0]
             beyond_y = end_y + direction[1]
-            if self.get_tile(beyond_x, beyond_y) in (TileType.UNEXPLORED, TileType.WALL):
+            beyond_tile = self.get_tile(beyond_x, beyond_y)
+            self._log(f"    Wall cap check at ({beyond_x}, {beyond_y}): {beyond_tile.name}")
+            if beyond_tile in (TileType.UNEXPLORED, TileType.WALL):
                 self.grid[(beyond_x, beyond_y)] = TileType.WALL
                 self._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
+            else:
+                self._log(f"    SKIPPED wall cap at ({beyond_x}, {beyond_y}) - tile is {beyond_tile.name}")
         
         return passage_tiles
     
@@ -663,18 +674,15 @@ class Dungeon:
             if self.get_tile(right_x, right_y) == TileType.UNEXPLORED:
                 self.grid[(right_x, right_y)] = TileType.WALL
                 self._log(f"    Placed right wall at ({right_x}, {right_y})")
-        elif 18 <= roll <= 20:
-            # Stairs down (18-20)
+        elif 18 <= roll <= 19:
+            # Stairs down (18-19)
             self.grid[(x, y)] = TileType.STAIRS_DOWN
             self._log(f"    Generated STAIRS_DOWN at ({x}, {y})")
-        elif roll == 21:
-            # Stairs out (21)
+        elif 20 <= roll <= 22:
+            # Stairs out (20-22)
             self.grid[(x, y)] = TileType.STAIRS_OUT
             self._log(f"    Generated STAIRS_OUT at ({x}, {y})")
-        elif roll == 22:
-            # Trap (22)
-            self.grid[(x, y)] = TileType.FLOOR
-            self._log(f"    Generated TRAP at ({x}, {y})")
+        # Roll 23 is T-junction (handled above with 2-3, 12-14, 23-24)
         # Roll 24 is T-junction (handled above)
     
     def _has_los(self, x1: int, y1: int, x2: int, y2: int) -> bool:
