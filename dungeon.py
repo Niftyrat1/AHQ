@@ -438,7 +438,7 @@ class Dungeon:
         random.shuffle(walls)
         for i in range(min(num_doors, len(walls))):
             x, y, dx, dy = walls[i]
-            if self.get_tile(x, y) == TileType.WALL:
+            if self.get_tile(x, y) in (TileType.WALL, TileType.UNEXPLORED):
                 self.grid[(x, y)] = TileType.DOOR_CLOSED
                 self.doors[(x, y)] = {"is_open": False, "from_room": True}  # From room
     
@@ -517,7 +517,7 @@ class Dungeon:
                         self.grid[(wall_x, wall_y)] = TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
-            feature_roll = random.randint(2, 24)  # 2D12
+            feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                 # Wandering monsters (triggered in game logic)
                 pass  # Game will check this and spawn
@@ -527,7 +527,7 @@ class Dungeon:
                 door_x = current_x + side_dir[0]
                 door_y = current_y + side_dir[1]
                 self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
-                if self.get_tile(door_x, door_y) == TileType.UNEXPLORED:
+                if self.get_tile(door_x, door_y) in (TileType.UNEXPLORED, TileType.WALL):
                     self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                     self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
                     self._log(f"    Placed 1 door at ({door_x}, {door_y})")
@@ -538,7 +538,7 @@ class Dungeon:
                     door_x = current_x + side_dir[0]
                     door_y = current_y + side_dir[1]
                     self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
-                    if self.get_tile(door_x, door_y) == TileType.UNEXPLORED:
+                    if self.get_tile(door_x, door_y) in (TileType.UNEXPLORED, TileType.WALL):
                         self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                         self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
                         self._log(f"    Placed door at ({door_x}, {door_y})")

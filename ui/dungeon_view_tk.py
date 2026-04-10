@@ -224,7 +224,29 @@ class DungeonViewTk:
         tile = self.dungeon.get_tile(x, y)
         walkable = self.dungeon.is_walkable(x, y)
         print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, speed: {self.selected_hero.speed}")
-        if dist <= self.selected_hero.speed and walkable:
+        
+        # Check path is clear (no walls blocking)
+        path_clear = True
+        if dist > 0:
+            # Step along the path and check each tile
+            curr_x, curr_y = self.selected_hero.x, self.selected_hero.y
+            dx = 0 if x == curr_x else (1 if x > curr_x else -1)
+            dy = 0 if y == curr_y else (1 if y > curr_y else -1)
+            steps = 0
+            while (curr_x, curr_y) != (x, y) and steps < dist:
+                curr_x += dx
+                curr_y += dy
+                steps += 1
+                # Skip checking the destination tile (we check it separately)
+                if (curr_x, curr_y) == (x, y):
+                    break
+                path_tile = self.dungeon.get_tile(curr_x, curr_y)
+                if not self.dungeon.is_walkable(curr_x, curr_y):
+                    print(f"[MOVE] Blocked at ({curr_x},{curr_y}) by {path_tile.name}")
+                    path_clear = False
+                    break
+        
+        if dist <= self.selected_hero.speed and walkable and path_clear:
             # Check not occupied
             occupied = False
             for h in self.heroes:
@@ -463,6 +485,28 @@ class DungeonViewTk:
                     continue
                 if (tx, ty) not in self.dungeon.explored:
                     continue
+                
+                # Check path is clear (no walls blocking)
+                path_clear = True
+                dist = abs(dx) + abs(dy)
+                if dist > 0:
+                    curr_x, curr_y = hero.x, hero.y
+                    step_dx = 0 if tx == curr_x else (1 if tx > curr_x else -1)
+                    step_dy = 0 if ty == curr_y else (1 if ty > curr_y else -1)
+                    steps = 0
+                    while (curr_x, curr_y) != (tx, ty) and steps < dist:
+                        curr_x += step_dx
+                        curr_y += step_dy
+                        steps += 1
+                        if (curr_x, curr_y) == (tx, ty):
+                            break
+                        if not self.dungeon.is_walkable(curr_x, curr_y):
+                            path_clear = False
+                            break
+                
+                if not path_clear:
+                    continue
+                
                 count_walkable += 1
                 
                 occupied = False
