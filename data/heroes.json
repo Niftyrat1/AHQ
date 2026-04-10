@@ -1,0 +1,62 @@
+{
+  "heroes": [
+    {
+      "id": "bob_8013",
+      "name": "bob",
+      "race": "Elf",
+      "class_type": "Warrior",
+      "ws": 5,
+      "bs": 7,
+      "strength": 6,
+      "toughness": 6,
+      "speed": 6,
+      "bravery": 9,
+      "intelligence": 8,
+      "max_wounds": 5,
+      "current_wounds": 5,
+      "max_fate": 2,
+      "current_fate": 2,
+      "gold": 70,
+      "experience": 0,
+      "total_pv": 0,
+      "equipment": [
+        {
+          "name": "Dagger",
+          "type": "weapon",
+          "equipped": true
+        }
+      ],
+      "is_dead": false,
+      "is_ko": false
+    },
+    {
+      "id": "varian_eagleeye_1731",
+      "name": "Varian Eagleeye",
+      "race": "Dwarf",
+      "class_type": "Wizard",
+      "ws": 11,
+      "bs": 7,
+      "strength": 6,
+      "toughness": 7,
+      "speed": 6,
+      "bravery": 8,
+      "intelligence": 11,
+      "max_wounds": 5,
+      "current_wounds": 5,
+      "max_fate": 2,
+      "current_fate": 2,
+      "gold": 80,
+      "experience": 0,
+      "total_pv": 0,
+      "equipment": [
+        {
+          "name": "Dagger",
+          "type": "weapon",
+          "equipped": true
+        }
+      ],
+      "is_dead": false,
+      "is_ko": false
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "hit_rolls": [
+    [7, 8, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+    [6, 7, 8, 9, 10, 10, 10, 10, 10, 10, 10, 10],
+    [5, 6, 7, 8, 9, 10, 10, 10, 10, 10, 10, 10],
+    [4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 10, 10],
+    [3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 10],
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10],
+    [2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10],
+    [2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10],
+    [2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    [2, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9],
+    [2, 2, 2, 2, 2, 2, 3, 4, 5, 6, 7, 8],
+    [2, 2, 2, 2, 2, 2, 2, 3, 4, 5, 6, 7]
+  ],
+  "hero_creation": {
+    "human": {"WS": "D6+4", "BS": "D4+3", "S": "D4+4", "T": "D4+4", "Sp": "D6+4", "Br": "D8+3", "Int": "D8+3", "W": "D4+1", "Fate": 2},
+    "dwarf": {"WS": "D6+5", "BS": "D4+3", "S": "D4+4", "T": "D4+4", "Sp": "D6+3", "Br": "D8+3", "Int": "D8+3", "W": "D4+1", "Fate": 2},
+    "elf": {"WS": "D6+4", "BS": "D4+5", "S": "D4+3", "T": "D4+2", "Sp": "D6+5", "Br": "D8+3", "Int": "D8+3", "W": "D4+1", "Fate": 2}
+  },
+  "race": {
+    "1-6": "Human",
+    "7-9": "Dwarf",
+    "10-12": "Elf"
+  },
+  "passage_length": {
+    "1-2": 1,
+    "3-8": 2,
+    "9-12": 3
+  },
+  "passage_features": {
+    "2-4": "wandering_monsters",
+    "5-15": "nothing",
+    "16-19": "1_door",
+    "20-21": "2_doors",
+    "22-24": "wandering_monsters"
+  },
+  "passage_end": {
+    "2-3": "t_junction",
+    "4-8": "dead_end",
+    "9-11": "right_turn",
+    "12-14": "t_junction",
+    "15-17": "left_turn",
+    "18-19": "stairs_down",
+    "20-22": "stairs_out",
+    "23-24": "t_junction"
+  },
+  "room_type": {
+    "1-6": "normal",
+    "7-8": "hazard",
+    "9-10": "lair",
+    "11-12": "quest"
+  },
+  "room_doors": {
+    "1-4": 0,
+    "5-8": 1,
+    "9-12": 2
+  },
+  "equipment": {
+    "dagger": {"cost": 2, "damage_dice": 1, "two_handed": false, "notes": "All heroes start with one free"},
+    "sword": {"cost": 10, "damage_dice": 1, "two_handed": false, "notes": ""},
+    "axe": {"cost": 8, "damage_dice": 1, "two_handed": false, "notes": ""},
+    "spear": {"cost": 6, "damage_dice": 1, "two_handed": false, "notes": ""},
+    "halberd": {"cost": 20, "damage_dice": 1, "two_handed": true, "critical": "11-12", "fumble": "1-2", "notes": ""},
+    "double_handed_sword": {"cost": 25, "damage_dice": 2, "two_handed": true, "critical": "11-12", "fumble": "1-2", "notes": ""},
+    "short_bow": {"cost": 15, "damage_dice": 1, "range": "ranged", "notes": ""},
+    "long_bow": {"cost": 20, "damage_dice": 1, "range": "ranged", "notes": ""},
+    "crossbow": {"cost": 25, "damage_dice": 2, "range": "ranged", "notes": "Cannot move and fire"},
+    "light_armour": {"cost": 20, "armour_value": 1, "notes": ""},
+    "heavy_armour": {"cost": 50, "armour_value": 2, "notes": ""},
+    "shield": {"cost": 10, "notes": "+1 to parry"}
+  }
+}
