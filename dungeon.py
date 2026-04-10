@@ -503,18 +503,18 @@ class Dungeon:
         # Place walls on sides of the end tile
         end_tile = self.get_tile(end_x, end_y)
         is_dead_end_or_stairs = end_tile in (TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT)
-        is_t_junction = end_tile == TileType.T_JUNCTION
-        is_turn = end_tile == TileType.FLOOR  # Turns are FLOOR with pending junction
+        # Check if this position is a pending junction (T-junction or turn)
+        is_pending_junction = (end_x, end_y) in self.pending_junctions
         
         for side in self._get_both_perpendicular(direction):
             wall_x = end_x + side[0]
             wall_y = end_y + side[1]
-            # Always place walls for dead ends/stairs; never for T-junctions or turns (exits must be clear)
+            # Always place walls for dead ends/stairs; never for pending junctions (exits must be clear)
             if is_dead_end_or_stairs:
                 if self.get_tile(wall_x, wall_y) in (TileType.UNEXPLORED, TileType.WALL):
                     self.grid[(wall_x, wall_y)] = TileType.WALL
                     self._log(f"    Placed side wall at ({wall_x}, {wall_y})")
-            elif not is_t_junction and not is_turn and self.get_tile(wall_x, wall_y) == TileType.UNEXPLORED:
+            elif not is_pending_junction and self.get_tile(wall_x, wall_y) == TileType.UNEXPLORED:
                 self.grid[(wall_x, wall_y)] = TileType.WALL
                 self._log(f"    Placed side wall at ({wall_x}, {wall_y})")
         
