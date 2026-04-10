@@ -27,8 +27,9 @@ class TileType(Enum):
 class Dungeon:
     """Represents a procedurally generated dungeon."""
     
-    def __init__(self, size: int = 100, debug_log: Optional[list] = None):
+    def __init__(self, size: int = 100, level: int = 1, debug_log: Optional[list] = None):
         self.size = size
+        self.level = level
         self.grid: Dict[Tuple[int, int], TileType] = {}
         self.explored: set = set()
         self.doors: Dict[Tuple[int, int], dict] = {}  # (x,y) -> {is_open: bool, from_room: bool}
@@ -717,6 +718,7 @@ class Dungeon:
         
         return {
             "size": self.size,
+            "level": self.level,
             "grid": {f"{x},{y}": t.name for (x, y), t in self.grid.items()},
             "explored": [f"{x},{y}" for x, y in self.explored],
             "doors": {f"{x},{y}": v for (x, y), v in self.doors.items()},
@@ -729,7 +731,7 @@ class Dungeon:
     @classmethod
     def from_dict(cls, data: dict) -> "Dungeon":
         """Create dungeon from dictionary."""
-        dungeon = cls(data.get("size", 100))
+        dungeon = cls(data.get("size", 100), data.get("level", 1))
         
         dungeon.grid = {}
         for key, val in data.get("grid", {}).items():

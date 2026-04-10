@@ -310,6 +310,9 @@ class DungeonViewTk:
                     elif tile == TileType.WALL:
                         color = "#1a1a2a"    # Dark navy — clearly different from floor
                         outline = "#2a2a3a"
+                    elif tile == TileType.PASSAGE_END:
+                        color = "#1a1a2a"    # Same as wall - dead end cap
+                        outline = "#2a2a3a"
                     elif tile == TileType.DOOR_CLOSED:
                         color = "#8b5a2b"
                         outline = "#6b4a1b"

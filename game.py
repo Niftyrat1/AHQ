@@ -46,7 +46,7 @@ class GameState:
         self.party = party
         self.monsters = []
         self.dungeon_debug_log = []
-        self.dungeon = Dungeon(debug_log=self.dungeon_debug_log)
+        self.dungeon = Dungeon(level=1, debug_log=self.dungeon_debug_log)
         self.mode = "DUNGEON"
         self.current_phase = "EXPLORATION"
         self.hero_phase_active = True
