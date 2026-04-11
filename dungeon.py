@@ -438,8 +438,8 @@ class Dungeon:
                     continue
                 
                 if abs(x - center_x) == half_w or abs(y - center_y) == half_h:
-                    # Walls - only place if unexplored or forced for entrance
-                    if (x, y) in entrance_wall_positions:
+                    # Perimeter - place walls on all sides (except door position)
+                    if (x, y) != (door_x, door_y):
                         self.grid[(x, y)] = TileType.WALL
                         room_walls.append((x, y))
                 else:

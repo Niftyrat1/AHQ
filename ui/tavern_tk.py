@@ -32,14 +32,14 @@ class TavernScreenTk:
         self.root.geometry("900x600")
         
         # Main frames
-        self.left_frame = tk.Frame(self.root, width=400)
+        self.left_frame = tk.Frame(self.root, width=400, bg="#2a2a35")
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
         
-        self.right_frame = tk.Frame(self.root, width=400)
+        self.right_frame = tk.Frame(self.root, width=400, bg="#2a2a35")
         self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Hero roster list
-        tk.Label(self.left_frame, text="Hero Roster", font=("Arial", 14, "bold")).pack(anchor=tk.W)
+        tk.Label(self.left_frame, text="Hero Roster", font=("Arial", 14, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.hero_listbox = tk.Listbox(self.left_frame, width=50, height=15, font=("Courier", 10),
                                        selectmode=tk.MULTIPLE)
@@ -47,7 +47,7 @@ class TavernScreenTk:
         self.hero_listbox.bind('<<ListboxSelect>>', self._on_hero_select)
         
         # Hero roster buttons
-        btn_frame = tk.Frame(self.left_frame)
+        btn_frame = tk.Frame(self.left_frame, bg="#2a2a35")
         btn_frame.pack(fill=tk.X, pady=5)
         
         tk.Button(btn_frame, text="Create Hero", command=self._start_hero_creation,
@@ -56,12 +56,12 @@ class TavernScreenTk:
                  bg="#a44", fg="white", width=12).pack(side=tk.LEFT, padx=2)
         
         # Party management
-        tk.Label(self.left_frame, text="Party (max 4)", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(10, 0))
+        tk.Label(self.left_frame, text="Party (max 4)", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W, pady=(10, 0))
         
         self.party_listbox = tk.Listbox(self.left_frame, width=50, height=4, font=("Courier", 10))
         self.party_listbox.pack(fill=tk.X, pady=5)
         
-        party_btn_frame = tk.Frame(self.left_frame)
+        party_btn_frame = tk.Frame(self.left_frame, bg="#2a2a35")
         party_btn_frame.pack(fill=tk.X, pady=5)
         
         tk.Button(party_btn_frame, text="Add to Party", command=self._add_to_party,
@@ -77,7 +77,7 @@ class TavernScreenTk:
         self.begin_btn.pack(fill=tk.X, pady=20)
         
         # Hero detail panel (right side)
-        tk.Label(self.right_frame, text="Hero Details", font=("Arial", 14, "bold")).pack(anchor=tk.W)
+        tk.Label(self.right_frame, text="Hero Details", font=("Arial", 14, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.detail_text = tk.Text(self.right_frame, width=40, height=20, font=("Courier", 11),
                                    bg="#222", fg="#ddd")

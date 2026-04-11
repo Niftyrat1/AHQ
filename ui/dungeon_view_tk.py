@@ -58,13 +58,14 @@ class DungeonViewTk:
         self.info_label.pack(fill=tk.X)
         
         # Left sidebar - Party
-        self.left_frame = tk.Frame(self.main_frame, width=200)
+        self.left_frame = tk.Frame(self.main_frame, width=200, bg="#2a2a35")
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
         
-        tk.Label(self.left_frame, text="Party", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        tk.Label(self.left_frame, text="Party", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.party_text = tk.Text(self.left_frame, width=25, height=20, font=("Courier", 10),
-                                  bg="#222", fg="#ddd")
+                                  bg="#222", fg="#ddd", borderwidth=0, highlightthickness=0,
+                                  insertontime=0, insertofftime=0)
         self.party_text.pack(fill=tk.BOTH, expand=True)
         self.party_text.config(state=tk.DISABLED)
         
@@ -88,10 +89,10 @@ class DungeonViewTk:
         self.canvas.bind("<Button-1>", self._on_canvas_click)
         
         # Right sidebar - Combat Log
-        self.right_frame = tk.Frame(self.main_frame, width=250)
+        self.right_frame = tk.Frame(self.main_frame, width=250, bg="#2a2a35")
         self.right_frame.pack(side=tk.RIGHT, fill=tk.Y)
         
-        tk.Label(self.right_frame, text="Combat Log", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        tk.Label(self.right_frame, text="Combat Log", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.log_text = scrolledtext.ScrolledText(self.right_frame, width=35, height=20,
                                                   font=("Courier", 9),
