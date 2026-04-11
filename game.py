@@ -253,28 +253,44 @@ class GameState:
     def _get_spawn_positions(self, count: int) -> List[tuple]:
         """Get positions to spawn monsters."""
         positions = []
-        # Spawn at edges of explored area, away from heroes
+        # Spawn in explored walkable area, away from heroes
         explored = list(self.dungeon.explored)
         
+        # Filter to only walkable tiles
+        walkable_explored = [pos for pos in explored if self.dungeon.is_walkable(pos[0], pos[1])]
+        
+        if not walkable_explored:
+            # No walkable tiles, return empty (shouldn't happen)
+            return positions
+        
         for _ in range(count):
-            # Find a position that's walkable and not occupied
+            # Find a position that's walkable and not too close to heroes
             attempts = 0
-            while attempts < 50:
-                pos = random.choice(explored)
-                if self.dungeon.is_walkable(pos[0], pos[1]):
-                    # Check not too close to heroes
+            while attempts < 100:
+                pos = random.choice(walkable_explored)
+                # Check not too close to heroes (3-8 tiles away)
+                min_dist = min(
+                    self.dungeon.get_distance(pos[0], pos[1], h.x, h.y)
+                    for h in self.party if not h.is_dead
+                )
+                if min_dist >= 3 and min_dist <= 10:
+                    positions.append(pos)
+                    break
+                attempts += 1
+            
+            if len(positions) < _ + 1:
+                # Fallback: any walkable position away from heroes (at least 3 tiles)
+                for pos in walkable_explored:
                     min_dist = min(
                         self.dungeon.get_distance(pos[0], pos[1], h.x, h.y)
                         for h in self.party if not h.is_dead
                     )
-                    if min_dist >= 3 and min_dist <= 8:
+                    if min_dist >= 3:
                         positions.append(pos)
                         break
-                attempts += 1
-            
-            if len(positions) < _ + 1:
-                # Fallback: random explored position
-                positions.append(random.choice(explored))
+                else:
+                    # Last resort: any walkable position
+                    positions.append(random.choice(walkable_explored))
         
         return positions
     
