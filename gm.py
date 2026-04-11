@@ -62,6 +62,44 @@ def get_adjacent_positions(x: int, y: int) -> List[Tuple[int, int]]:
     return [(x+1, y), (x-1, y), (x, y+1), (x, y-1)]
 
 
+def find_path_bfs(
+    start_x: int, start_y: int,
+    target_x: int, target_y: int,
+    dungeon: Dungeon,
+    occupied: set
+) -> Optional[List[Tuple[int, int]]]:
+    """Find path using BFS. Returns list of positions from start to target, or None."""
+    from collections import deque
+    
+    if (start_x, start_y) == (target_x, target_y):
+        return []
+    
+    queue = deque([[(start_x, start_y)]])
+    visited = {(start_x, start_y)}
+    
+    while queue:
+        path = queue.popleft()
+        x, y = path[-1]
+        
+        for nx, ny in get_adjacent_positions(x, y):
+            if (nx, ny) in visited:
+                continue
+            if (nx, ny) in occupied and (nx, ny) != (target_x, target_y):
+                continue
+            if not dungeon.is_walkable(nx, ny):
+                continue
+            
+            new_path = path + [(nx, ny)]
+            
+            if (nx, ny) == (target_x, target_y):
+                return new_path
+            
+            visited.add((nx, ny))
+            queue.append(new_path)
+    
+    return None
+
+
 def move_monster_toward(
     monster: Monster,
     target_x: int,
@@ -70,24 +108,29 @@ def move_monster_toward(
     occupied: set
 ) -> bool:
     """
-    Move monster one step toward target.
+    Move monster one step toward target using BFS pathfinding.
     Returns True if moved.
     """
-    # Get possible moves (adjacent, walkable, not occupied)
-    moves = []
-    for nx, ny in get_adjacent_positions(monster.x, monster.y):
-        if dungeon.is_walkable(nx, ny) and (nx, ny) not in occupied:
-            dist = dungeon.get_distance(nx, ny, target_x, target_y)
-            moves.append((dist, nx, ny))
+    # Find actual path to target using BFS
+    path = find_path_bfs(monster.x, monster.y, target_x, target_y, dungeon, occupied)
     
-    if not moves:
-        return False
+    if not path or len(path) < 2:
+        # No valid path found, try greedy fallback
+        moves = []
+        for nx, ny in get_adjacent_positions(monster.x, monster.y):
+            if dungeon.is_walkable(nx, ny) and (nx, ny) not in occupied:
+                dist = dungeon.get_distance(nx, ny, target_x, target_y)
+                moves.append((dist, nx, ny))
+        
+        if not moves:
+            return False
+        
+        moves.sort()
+        _, new_x, new_y = moves[0]
+    else:
+        # Move to first step of the path (path[0] is current position, path[1] is next step)
+        new_x, new_y = path[1]
     
-    # Sort by distance (ascending)
-    moves.sort()
-    
-    # Move to best position
-    _, new_x, new_y = moves[0]
     occupied.remove((monster.x, monster.y))
     monster.x, monster.y = new_x, new_y
     occupied.add((new_x, new_y))
