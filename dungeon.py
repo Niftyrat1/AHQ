@@ -260,96 +260,201 @@ class Dungeon:
             self._log(f"  After exploring {direction}, ALL pending_junctions: {dict(self.pending_junctions)}")
         # Also re-explore from current position after all directions processed
         self._log(f"  Before _explore_from, ALL pending_junctions: {dict(self.pending_junctions)}")
-        self._explore_from(x, y)
-        self._log(f"  Final ALL pending_junctions: {dict(self.pending_junctions)}")
-        return True
     
-    def open_door(self, x: int, y: int) -> bool:
-        """Open a door and generate what's behind it."""
-        if (x, y) not in self.doors:
-            return False
+def check_and_generate_junction(self, x: int, y: int) -> bool:
+    """Check if position is a pending junction and generate/explore its exits."""
+    pos = (x, y)
+    if not hasattr(self, 'pending_junctions'):
+        self._log(f"check_and_generate_junction at {pos}: NO pending_junctions attribute")
+        return False
+    if pos not in self.pending_junctions:
+        pending_list = list(self.pending_junctions.keys())[:5]  # Show first 5
+        self._log(f"check_and_generate_junction at {pos}: NOT in pending_junctions (has {pending_list})")
+        return False
         
+    exits = self.pending_junctions[pos]
+    # Determine junction type based on exits
+    if len(exits) == 1:
+        junc_type = "Turn/Continue"
+    elif len(exits) == 2:
+        # Check if exits are opposite (straight) or perpendicular (T-junction)
+        dx1, dy1 = exits[0]
+        dx2, dy2 = exits[1]
+        if dx1 == -dx2 and dy1 == -dy2:
+            junc_type = "Straight or Side passage"
+        else:
+            junc_type = "T-junction"
+    elif len(exits) == 3:
+        junc_type = "X-junction (cross)"
+    else:
+        junc_type = f"{len(exits)}-way junction"
+        
+    self._log(f"check_and_generate_junction at {pos}: {junc_type} with exits {exits}")
+    self._log(f"  ALL pending_junctions: {dict(self.pending_junctions)}")
+        
+    # Clear any blocking walls in the exit directions first
+    # But don't clear if this is a room wall (part of room boundary)
+    for direction in exits:
+        wall_x = x + direction[0]
+        wall_y = y + direction[1]
+        tile = self.get_tile(wall_x, wall_y)
+        self._log(f"  Checking exit at ({wall_x}, {wall_y}): {tile.name}")
+        if tile == TileType.WALL:
+            # Check if this wall is part of a room (surrounded by other room tiles)
+            # If so, don't clear it - it's a room wall
+            is_room_wall = self._is_room_wall(wall_x, wall_y)
+            if is_room_wall:
+                self._log(f"  NOT clearing wall at ({wall_x}, {wall_y}) - it's a room wall")
+            else:
+                self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
+                del self.grid[(wall_x, wall_y)]
+        elif tile != TileType.UNEXPLORED:
+            self._log(f"  Exit at ({wall_x}, {wall_y}) is {tile.name}, not a wall")
+        
+    # Get and remove this junction from pending
+    exits = self.pending_junctions.pop(pos)
+    self._log(f"  Removed {pos} from pending_junctions, remaining: {list(self.pending_junctions.keys())}")
+        
+    # Explore passages in all pending directions
+    for direction in exits:
+        self._log(f"  Exploring direction {direction}")
+        # First generate the passage from this junction (for turns/T-junctions)
+        self.generate_passage_from(x, y, direction)
+        # Then explore the newly generated passage
+        curr_x, curr_y = x, y
+        tiles_explored = 0
+        walls_explored = 0
+        for _ in range(20):  # Max passage length
+            curr_x += direction[0]
+            curr_y += direction[1]
+            tile = self.get_tile(curr_x, curr_y)
+            if tile == TileType.UNEXPLORED:
+                self._log(f"    Hit unexplored at ({curr_x}, {curr_y}), stopping")
+                break
+            # Explore this tile
+            self.explored.add((curr_x, curr_y))
+            tiles_explored += 1
+            self._log(f"    Explored tile ({curr_x}, {curr_y}): {tile.name}")
+            # Explore adjacent tiles (walls, doors)
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    adj_pos = (curr_x + dx, curr_y + dy)
+                    adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
+                    if adj_tile != TileType.UNEXPLORED and adj_pos not in self.explored:
+                        self.explored.add(adj_pos)
+                        walls_explored += 1
+                        self._log(f"      Adjacent wall at {adj_pos}: {adj_tile.name}")
+        self._log(f"  Total: {tiles_explored} tiles, {walls_explored} adjacent tiles explored")
+        self._log(f"  After exploring {direction}, ALL pending_junctions: {dict(self.pending_junctions)}")
+    # Also re-explore from current position after all directions processed
+    self._log(f"  Before _explore_from, ALL pending_junctions: {dict(self.pending_junctions)}")
+    self._explore_from(x, y)
+    self._log(f"  Final ALL pending_junctions: {dict(self.pending_junctions)}")
+    return True
+    
+def open_door(self, x: int, y: int) -> bool:
+    """Open a door and generate what's beyond."""
+    if (x, y) not in self.doors:
+        return False
+        
+    direction = self._get_door_direction(x, y)
+    target_x = x + direction[0]
+    target_y = y + direction[1]
+        
+    # Safety check — don't generate into already-explored walkable space
+    target_tile = self.get_tile(target_x, target_y)
+    if target_tile in (TileType.FLOOR, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
+        self._log(f"Door at ({x},{y}) points toward existing floor at ({target_x},{target_y}), skipping generation")
         door_info = self.doors[(x, y)]
         door_info["is_open"] = True
         self.grid[(x, y)] = TileType.DOOR_OPEN
-        
-        direction = self._get_door_direction(x, y)
-        
-        # Check if door is from passage or room
-        from_room = door_info.get("from_room", True)
-        
-        if from_room:
-            # Room door: 50% passage, 50% room (D12: 1-6 passage, 7-12 room)
-            roll = random.randint(1, 12)
-            if roll <= 6:
-                # Passage beyond door
-                self.generate_passage_from(x, y, direction)
-            else:
-                # Room beyond door - pass door position, room center calculated inside
-                door_x = x + direction[0]  # Door is 1 tile from current
-                door_y = y + direction[1]
-                self._generate_room(door_x, door_y, direction, from_passage=True)
-        else:
-            # Passage door: ALWAYS leads to room
-            door_x = x + direction[0]
-            door_y = y + direction[1]
-            self._generate_room(door_x, door_y, direction, from_passage=True)
-        
         return True
-    
-    def _get_door_direction(self, x: int, y: int) -> Tuple[int, int]:
-        """Determine which way the door faces based on surrounding walls."""
-        # Check which side has floor vs wall
-        if self.get_tile(x + 1, y) in (TileType.FLOOR, TileType.WALL):
-            return (1, 0)  # East
-        elif self.get_tile(x - 1, y) in (TileType.FLOOR, TileType.WALL):
-            return (-1, 0)  # West
-        elif self.get_tile(x, y + 1) in (TileType.FLOOR, TileType.WALL):
-            return (0, 1)  # South
-        else:
-            return (0, -1)  # North
-    
-    def _generate_room(self, door_x: int, door_y: int, entrance_dir: Tuple[int, int],
-                        from_passage: bool = False):
-        """Generate a room beyond a door."""
-        # Roll room type
+        
+    door_info = self.doors[(x, y)] = True
+    self.grid[(x, y)] = TileType.DOOR_OPEN
+        
+    direction = self._get_door_direction(x, y)
+        
+    # Check if door is from passage or room
+    from_room = door_info.get("from_room", True)
+        
+    if from_room:
+        # Room door: 50% passage, 50% room (D12: 1-6 passage, 7-12 room)
         roll = random.randint(1, 12)
         if roll <= 6:
-            room_type = "normal"
-            width, height = random.randint(4, 6), random.randint(4, 6)
-        elif roll <= 8:
-            room_type = "hazard"
-            width, height = random.randint(4, 6), random.randint(4, 6)
-        elif roll <= 10:
-            room_type = "lair"
-            width, height = random.randint(6, 10), random.randint(6, 10)
+            # Passage beyond door
+            self.generate_passage_from(x, y, direction)
         else:
-            room_type = "quest"
-            width, height = random.randint(8, 12), random.randint(8, 12)
+            # Room beyond door - pass door position, room center calculated inside
+            door_x = x + direction[0]  # Door is 1 tile from current
+            door_y = y + direction[1]
+            self._generate_room(door_x, door_y, direction, from_passage=True)
+    else:
+        # Passage door: ALWAYS leads to room
+        door_x = x + direction[0]
+        door_y = y + direction[1]
+        self._generate_room(door_x, door_y, direction, from_passage=True)
         
-        # Create room
-        room_tiles = []
-        room_walls = []
-        half_w, half_h = width // 2, height // 2
+    return True
+    
+def _get_door_direction(self, x: int, y: int) -> Tuple[int, int]:
+    """Determine which way the door opens — toward unexplored space."""
+    for direction in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        nx, ny = x + direction[0], y + direction[1]
+        tile = self.get_tile(nx, ny)
+        # Door opens toward unexplored or passage-end space
+        if tile == TileType.UNEXPLORED:
+            return direction
+    # Fallback: open toward non-floor tile
+    for direction in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+        nx, ny = x + direction[0], y + direction[1]
+        tile = self.get_tile(nx, ny)
+        if tile not in (TileType.FLOOR, TileType.STAIRS_DOWN,
+                        TileType.STAIRS_OUT, TileType.DOOR_OPEN):
+            return direction
+    return (1, 0)  # Last resort
+    
+def _generate_room(self, door_x: int, door_y: int, entrance_dir: Tuple[int, int],
+                    from_passage: bool = False):
+    """Generate a room beyond a door."""
+    # Roll room type
+    roll = random.randint(1, 12)
+    if roll <= 6:
+        room_type = "normal"
+        width, height = random.randint(4, 6), random.randint(4, 6)
+    elif roll <= 8:
+        room_type = "hazard"
+        width, height = random.randint(4, 6), random.randint(4, 6)
+    elif roll <= 10:
+        room_type = "lair"
+        width, height = random.randint(6, 10), random.randint(6, 10)
+    else:
+        room_type = "quest"
+        width, height = random.randint(8, 12), random.randint(8, 12)
         
-        # Calculate room center so that room wall is adjacent to door (not overlapping)
-        # Door is at the passage wall, room starts 1 tile beyond in entrance direction
-        # Center is: door_pos + entrance_dir * (1 + half_size_in_that_direction)
-        if entrance_dir == (0, -1):  # North - room is north of door
-            center_x, center_y = door_x, door_y - 1 - half_h
-        elif entrance_dir == (0, 1):  # South
-            center_x, center_y = door_x, door_y + 1 + half_h
-        elif entrance_dir == (-1, 0):  # West
-            center_x, center_y = door_x - 1 - half_w, door_y
-        else:  # East
-            center_x, center_y = door_x + 1 + half_w, door_y
+    # Create room
+    room_tiles = []
+    room_walls = []
+    half_w, half_h = width // 2, height // 2
         
-        # When room comes from passage, ensure entrance side wall is intact (for door)
-        entrance_wall_positions = set()
-        if from_passage:
-            # Calculate which side of the room the entrance is on
-            # and ensure that wall is placed (except at the door position)
-            for x in range(center_x - half_w, center_x + half_w + 1):
+    # Calculate room center so that room wall is adjacent to door (not overlapping)
+    # Door is at the passage wall, room starts 1 tile beyond in entrance direction
+    # Center is: door_pos + entrance_dir * (1 + half_size_in_that_direction)
+    if entrance_dir == (0, -1):  # North - room is north of door
+        center_x, center_y = door_x, door_y - 1 - half_h
+    elif entrance_dir == (0, 1):  # South
+        center_x, center_y = door_x, door_y + 1 + half_h
+    elif entrance_dir == (-1, 0):  # West
+        center_x, center_y = door_x - 1 - half_w, door_y
+    else:  # East
+        center_x, center_y = door_x + 1 + half_w, door_y
+        
+    # Check if room centre would overlap heavily with existing tiles
+    overlap_count = 0
+    for x in range(center_x - half_w, center_x + half_w + 1):
+        for y in range(center_y - half_h, center_y + half_h + 1):
+            if self.get_tile(x, y) not in (TileType.UNEXPLORED, TileType.WALL):
+                overlap_count += 1
                 for y in range(center_y - half_h, center_y + half_h + 1):
                     # Check if on the entrance side of the room
                     if entrance_dir == (0, -1):  # North side
