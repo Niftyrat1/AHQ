@@ -199,6 +199,10 @@ class DungeonViewTk:
         # Check for door
         tile = self.dungeon.get_tile(x, y)
         if tile == TileType.DOOR_CLOSED:
+            # Check if hero is adjacent to the door
+            if not self.dungeon.is_adjacent(self.selected_hero.x, self.selected_hero.y, x, y):
+                self._show_message("Not adjacent to door!")
+                return
             if self.dungeon.open_door(x, y):
                 self.add_log_message(f"{self.selected_hero.name} opens a door")
                 self._update_display()
