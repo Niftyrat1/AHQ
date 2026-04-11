@@ -612,6 +612,28 @@ class Dungeon:
                 # This would be a corner - door at inside corner of two passages
                 return False
         
+        # Check if door is between two passages (floor on both sides perpendicular)
+        # This creates a T-junction door which is visually a corner
+        perp_floor_count = 0
+        for perp in perp_dirs:
+            side_x = x + perp[0]
+            side_y = y + perp[1]
+            if self.get_tile(side_x, side_y) == TileType.FLOOR:
+                perp_floor_count += 1
+        # If floor exists on both perpendicular sides, door is at a junction
+        if perp_floor_count >= 2:
+            return False
+        
+        # Check if door is at passage turn - floor ahead AND behind in passage direction
+        ahead_x = x + direction[0]
+        ahead_y = y + direction[1]
+        behind_x = x - direction[0]
+        behind_y = y - direction[1]
+        # If floor exists both ahead (in passage) and behind (another passage), it's a corner
+        if self.get_tile(ahead_x, ahead_y) == TileType.FLOOR and \
+           self.get_tile(behind_x, behind_y) == TileType.FLOOR:
+            return False
+        
         return True
     
     def generate_passage_from(self, x: int, y: int, direction: Tuple[int, int],
