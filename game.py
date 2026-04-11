@@ -296,8 +296,10 @@ class GameState:
         self.combat_log.append(f"Door opened at ({x}, {y})")
         
         # Check if room has monsters placed by dungeon generation
+        self.combat_log.append(f"  Dungeon monsters: {self.dungeon.monsters}")
         if self.dungeon.monsters:
             monster_ids = list(self.dungeon.monsters.values())
+            self.combat_log.append(f"  Found monster_ids: {monster_ids}")
             self.dungeon.monsters.clear()  # Clear from dungeon, will spawn in game
             if monster_ids:
                 self._start_combat(monster_ids)

@@ -549,14 +549,22 @@ class Dungeon:
         else:
             monster_ids = roll_quest_room_encounter()
         
+        self._log(f"  Placing monsters in {encounter_type} room: {monster_ids}")
+        self._log(f"  Room has {len(room_tiles)} tiles, hero_start at {self.hero_start}")
+        
         # Place monsters in room (not too close to entrance)
         available = [t for t in room_tiles if not self._is_near_entrance(t[0], t[1])]
+        
+        self._log(f"  Available tiles for monsters (not near entrance): {len(available)}")
         
         for monster_id in monster_ids:
             if available:
                 pos = random.choice(available)
                 self.monsters[pos] = monster_id
+                self._log(f"  Placed {monster_id} at {pos}")
                 available.remove(pos)
+            else:
+                self._log(f"  No available tiles to place {monster_id}")
     
     def _is_near_entrance(self, x: int, y: int, distance: int = 3) -> bool:
         """Check if position is near the stairs entrance."""
@@ -620,13 +628,17 @@ class Dungeon:
                         self.grid[(wall_x, wall_y)] = TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
+            # Skip door placement at junction positions (where passages intersect/turn)
+            # Check if this position has multiple passage connections (a junction)
+            is_junction = self._is_junction_position(current_x, current_y)
+            
             feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                 # Wandering monsters - mark this tile for encounter
                 self.wandering_monsters.add((current_x, current_y))
                 self._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
-            elif 16 <= feature_roll <= 19:
-                # 1 door on side
+            elif 16 <= feature_roll <= 19 and not is_junction:
+                # 1 door on side (not at junctions)
                 side_dir = self._get_perpendicular(direction)
                 door_x = current_x + side_dir[0]
                 door_y = current_y + side_dir[1]
@@ -635,8 +647,8 @@ class Dungeon:
                     self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                     self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
                     self._log(f"    Placed 1 door at ({door_x}, {door_y})")
-            elif 20 <= feature_roll <= 21:
-                # 2 doors on sides
+            elif 20 <= feature_roll <= 21 and not is_junction:
+                # 2 doors on sides (not at junctions)
                 side_dirs = self._get_both_perpendicular(direction)
                 for side_dir in side_dirs:
                     door_x = current_x + side_dir[0]
