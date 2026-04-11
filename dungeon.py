@@ -592,7 +592,7 @@ class Dungeon:
             if self._is_junction_position(passage_x, passage_y):
                 return False
         
-        # Also check if this position itself has multiple floor neighbors (is a junction)
+        # Check if this position itself has multiple floor neighbors (is a junction)
         floor_neighbors = 0
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             if self.get_tile(x + dx, y + dy) == TileType.FLOOR:
@@ -600,6 +600,17 @@ class Dungeon:
         # If more than 2 floor neighbors, this is a junction/corner
         if floor_neighbors > 2:
             return False
+        
+        # Check if door would be at a corner - look for floor tiles diagonal to the door
+        # A corner position has floor in the passage direction AND perpendicular direction
+        # Creating an L-shape, which we don't want for doors
+        for perp in perp_dirs:
+            # Check diagonal from door - if there's floor there, it's a corner
+            diag_x = x + perp[0] + direction[0]
+            diag_y = y + perp[1] + direction[1]
+            if self.get_tile(diag_x, diag_y) == TileType.FLOOR:
+                # This would be a corner - door at inside corner of two passages
+                return False
         
         return True
     
