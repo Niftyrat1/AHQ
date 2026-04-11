@@ -337,6 +337,8 @@ class Dungeon:
             roll = random.randint(1, 12)
             if roll <= 6:
                 self.generate_passage_from(x, y, direction)
+                # Explore the passage entrance so walls are visible
+                self._explore_from(x, y)
             else:
                 self._generate_room(gen_x, gen_y, direction, from_passage=False)
         else:
