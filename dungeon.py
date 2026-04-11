@@ -619,12 +619,16 @@ class Dungeon:
                         self.grid[(wall_x, wall_y)] = TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
+            # Skip door placement at section boundaries (first and last tile of each section)
+            # to prevent doors on corners
+            is_section_boundary = (tile_idx == 0 or tile_idx == 3)
+            
             feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                 # Wandering monsters (triggered in game logic)
                 pass  # Game will check this and spawn
-            elif 16 <= feature_roll <= 19:
-                # 1 door on side
+            elif 16 <= feature_roll <= 19 and not is_section_boundary:
+                # 1 door on side (not at corners)
                 side_dir = self._get_perpendicular(direction)
                 door_x = current_x + side_dir[0]
                 door_y = current_y + side_dir[1]
@@ -633,8 +637,8 @@ class Dungeon:
                     self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                     self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
                     self._log(f"    Placed 1 door at ({door_x}, {door_y})")
-            elif 20 <= feature_roll <= 21:
-                # 2 doors on sides
+            elif 20 <= feature_roll <= 21 and not is_section_boundary:
+                # 2 doors on sides (not at corners)
                 side_dirs = self._get_both_perpendicular(direction)
                 for side_dir in side_dirs:
                     door_x = current_x + side_dir[0]
