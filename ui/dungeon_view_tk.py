@@ -49,7 +49,7 @@ class DungeonViewTk:
         self.top_frame = tk.Frame(self.root)
         self.top_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.main_frame = tk.Frame(self.root)
+        self.main_frame = tk.Frame(self.root, highlightthickness=0)
         self.main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Top info bar
@@ -58,16 +58,14 @@ class DungeonViewTk:
         self.info_label.pack(fill=tk.X)
         
         # Left sidebar - Party
-        self.left_frame = tk.Frame(self.main_frame, width=200, bg="#2a2a35")
+        self.left_frame = tk.Frame(self.main_frame, width=200, bg="#2a2a35", highlightthickness=0)
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
         
         tk.Label(self.left_frame, text="Party", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.party_text = tk.Text(self.left_frame, width=25, height=20, font=("Courier", 10),
-                                  bg="#222", fg="#ddd", borderwidth=0, highlightthickness=0,
-                                  insertontime=0, insertofftime=0, insertwidth=0)
-        self.party_text.pack(fill=tk.BOTH, expand=True)
-        self.party_text.config(state=tk.DISABLED)
+                                  bg="#222", fg="#ddd", insertwidth=0, takefocus=0)
+        self.party_text.pack(fill=tk.Y, expand=False)
         
         # End Phase button
         self.end_phase_btn = tk.Button(self.left_frame, text="End Hero Phase",
@@ -80,30 +78,29 @@ class DungeonViewTk:
         self.return_btn.pack(fill=tk.X, pady=5)
         
         # Center - Canvas for dungeon
-        self.canvas_frame = tk.Frame(self.main_frame, bg="black")
+        self.canvas_frame = tk.Frame(self.main_frame, bg="black", highlightthickness=0)
         self.canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         self.canvas = tk.Canvas(self.canvas_frame, bg="#111", highlightthickness=0)
+        print(f"[DEBUG] Canvas created, highlightthickness=0")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
         self.canvas.bind("<Button-1>", self._on_canvas_click)
         
         # Right sidebar - Combat Log
-        self.right_frame = tk.Frame(self.main_frame, width=250, bg="#2a2a35")
+        self.right_frame = tk.Frame(self.main_frame, width=250, bg="#2a2a35", highlightthickness=0)
         self.right_frame.pack(side=tk.RIGHT, fill=tk.Y)
         
         tk.Label(self.right_frame, text="Combat Log", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.log_text = scrolledtext.ScrolledText(self.right_frame, width=35, height=20,
                                                   font=("Courier", 9),
-                                                  bg="#1a1a1a", fg="#ccc", insertwidth=0)
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-        self.log_text.config(state=tk.DISABLED)
+                                                  bg="#1a1a1a", fg="#ccc", insertwidth=0, takefocus=0)
+        self.log_text.pack(fill=tk.Y, expand=False)
         
-        # Message display
+        # Message display (initially hidden)
         self.message_label = tk.Label(self.main_frame, text="", font=("Arial", 11),
                                      fg="#f55", bg="#111")
-        self.message_label.place(relx=0.5, rely=0.1, anchor=tk.CENTER)
     
     def setup_dungeon(self, dungeon: Dungeon, heroes: List[Hero]):
         """Initialize dungeon view."""
@@ -129,7 +126,8 @@ class DungeonViewTk:
         self.root.after(100, self._initial_render)
     
     def _initial_render(self):
-        """Second render pass once canvas has real dimensions."""
+        print(f"[DEBUG] Canvas winfo: x={self.canvas.winfo_x()}, y={self.canvas.winfo_y()}, w={self.canvas.winfo_width()}, h={self.canvas.winfo_height()}")
+        print(f"[DEBUG] party_text winfo: x={self.party_text.winfo_x()}, y={self.party_text.winfo_y()}, w={self.party_text.winfo_width()}, h={self.party_text.winfo_height()}")
         self._center_camera()
         self._update_display()
 
@@ -296,7 +294,8 @@ class DungeonViewTk:
     def _show_message(self, text: str):
         """Show temporary message."""
         self.message_label.config(text=text)
-        self.root.after(2000, lambda: self.message_label.config(text=""))
+        self.message_label.place(relx=0.5, rely=0.1, anchor=tk.CENTER)
+        self.root.after(2000, lambda: self.message_label.place_forget())
     
     def _update_display(self):
         """Redraw the canvas."""

@@ -3,6 +3,12 @@ Entry point for Advanced HeroQuest digital adaptation.
 Uses tkinter for UI (built into Python).
 """
 
+import ctypes
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except:
+    pass
+
 import sys
 import tkinter as tk
 from tkinter import messagebox
