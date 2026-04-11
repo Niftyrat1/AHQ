@@ -65,7 +65,7 @@ class DungeonViewTk:
         
         self.party_text = tk.Text(self.left_frame, width=25, height=20, font=("Courier", 10),
                                   bg="#222", fg="#ddd", borderwidth=0, highlightthickness=0,
-                                  insertontime=0, insertofftime=0)
+                                  insertontime=0, insertofftime=0, insertwidth=0)
         self.party_text.pack(fill=tk.BOTH, expand=True)
         self.party_text.config(state=tk.DISABLED)
         
@@ -96,7 +96,7 @@ class DungeonViewTk:
         
         self.log_text = scrolledtext.ScrolledText(self.right_frame, width=35, height=20,
                                                   font=("Courier", 9),
-                                                  bg="#1a1a1a", fg="#ccc")
+                                                  bg="#1a1a1a", fg="#ccc", insertwidth=0)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.log_text.config(state=tk.DISABLED)
         

@@ -80,9 +80,11 @@ class TavernScreenTk:
         tk.Label(self.right_frame, text="Hero Details", font=("Arial", 14, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W)
         
         self.detail_text = tk.Text(self.right_frame, width=40, height=20, font=("Courier", 11),
-                                   bg="#222", fg="#ddd")
+                                   bg="#222", fg="#ddd", insertwidth=0)
         self.detail_text.pack(fill=tk.BOTH, expand=True, pady=5)
         self.detail_text.config(state=tk.DISABLED)
+        
+        self._update_detail_panel()
     
     def refresh_hero_list(self):
         """Refresh the list of heroes."""
@@ -129,6 +131,8 @@ class TavernScreenTk:
                 lines.append(f"  - {item['name']}")
             
             self.detail_text.insert(tk.END, "\n".join(lines))
+        else:
+            self.detail_text.insert(tk.END, "\n  Select a hero to\n  view their details.")
         
         self.detail_text.config(state=tk.DISABLED)
     
