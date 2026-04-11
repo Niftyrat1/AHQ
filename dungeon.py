@@ -509,25 +509,35 @@ class Dungeon:
         walls = []
         
         # Find all wall positions that could have doors
+        # Only include non-corner walls that are newly created (UNEXPLORED), not existing passage walls
         for x in range(cx - half_w, cx + half_w + 1):
-            walls.append((x, cy - half_h, 0, -1))  # North wall
-            walls.append((x, cy + half_h, 0, 1))   # South wall
+            # Skip corners
+            if x != cx - half_w and x != cx + half_w:
+                walls.append((x, cy - half_h, 0, -1))  # North wall
+                walls.append((x, cy + half_h, 0, 1))   # South wall
         for y in range(cy - half_h, cy + half_h + 1):
-            walls.append((cx - half_w, y, -1, 0))  # West wall
-            walls.append((cx + half_w, y, 1, 0))   # East wall
+            # Skip corners
+            if y != cy - half_h and y != cy + half_h:
+                walls.append((cx - half_w, y, -1, 0))  # West wall
+                walls.append((cx + half_w, y, 1, 0))   # East wall
         
         # Remove the entrance position
         entrance_pos = (cx - entrance_dir[0] * half_w if entrance_dir[0] != 0 else cx,
                      cy - entrance_dir[1] * half_h if entrance_dir[1] != 0 else cy)
         walls = [w for w in walls if (w[0], w[1]) != entrance_pos]
         
-        # Add doors randomly
+        # Add doors randomly - only in positions that are UNEXPLORED (new room walls)
+        # NOT in existing WALLs from passages
         random.shuffle(walls)
-        for i in range(min(num_doors, len(walls))):
-            x, y, dx, dy = walls[i]
-            if self.get_tile(x, y) in (TileType.WALL, TileType.UNEXPLORED):
+        doors_placed = 0
+        for x, y, dx, dy in walls:
+            if doors_placed >= num_doors:
+                break
+            # Only place door if this is a new wall (UNEXPLORED), not an existing passage wall
+            if self.get_tile(x, y) == TileType.UNEXPLORED:
                 self.grid[(x, y)] = TileType.DOOR_CLOSED
                 self.doors[(x, y)] = {"is_open": False, "from_room": True}  # From room
+                doors_placed += 1
     
     def _place_monsters_in_room(self, room_tiles: List[Tuple[int, int]], encounter_type: str):
         """Place monsters in a room."""

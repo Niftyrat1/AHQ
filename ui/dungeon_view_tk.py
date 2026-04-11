@@ -223,30 +223,41 @@ class DungeonViewTk:
         dist = self.dungeon.get_distance(self.selected_hero.x, self.selected_hero.y, x, y)
         tile = self.dungeon.get_tile(x, y)
         walkable = self.dungeon.is_walkable(x, y)
-        print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, speed: {self.selected_hero.speed}")
         
-        # Check path is clear (no walls blocking)
+        # Get remaining movement
+        remaining_movement = self.selected_hero.speed
+        if self.on_get_hero_status:
+            remaining_movement, _ = self.on_get_hero_status(self.selected_hero.id)
+        
+        print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, remaining: {remaining_movement}")
+        
+        # Check path is clear - allow natural movement (any combination of x/y steps)
         path_clear = True
-        if dist > 0:
-            # Step along the path and check each tile
+        if dist > 0 and dist <= remaining_movement:
+            # Build list of tiles to check - any path with total dist is valid
             curr_x, curr_y = self.selected_hero.x, self.selected_hero.y
-            dx = 0 if x == curr_x else (1 if x > curr_x else -1)
-            dy = 0 if y == curr_y else (1 if y > curr_y else -1)
-            steps = 0
-            while (curr_x, curr_y) != (x, y) and steps < dist:
-                curr_x += dx
-                curr_y += dy
-                steps += 1
-                # Skip checking the destination tile (we check it separately)
-                if (curr_x, curr_y) == (x, y):
-                    break
-                path_tile = self.dungeon.get_tile(curr_x, curr_y)
-                if not self.dungeon.is_walkable(curr_x, curr_y):
-                    print(f"[MOVE] Blocked at ({curr_x},{curr_y}) by {path_tile.name}")
+            target_x, target_y = x, y
+            
+            # Create path: move in x direction first, then y (any order works for Manhattan)
+            path_tiles = []
+            # X movement
+            while curr_x != target_x:
+                curr_x += 1 if target_x > curr_x else -1
+                path_tiles.append((curr_x, curr_y))
+            # Y movement
+            while curr_y != target_y:
+                curr_y += 1 if target_y > curr_y else -1
+                path_tiles.append((curr_x, curr_y))
+            
+            # Check all intermediate tiles (excluding final destination)
+            for path_tile in path_tiles[:-1] if path_tiles else []:
+                path_tile_type = self.dungeon.get_tile(path_tile[0], path_tile[1])
+                if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
+                    print(f"[MOVE] Blocked at {path_tile} by {path_tile_type.name}")
                     path_clear = False
                     break
         
-        if dist <= self.selected_hero.speed and walkable and path_clear:
+        if dist <= remaining_movement and walkable and path_clear:
             # Check not occupied
             occupied = False
             for h in self.heroes:
@@ -472,21 +483,26 @@ class DungeonViewTk:
         self._clear_movement_range()
         self.movement_highlights = []
         
+        # Get remaining movement from callback
+        movement_remaining = hero.speed
+        if self.on_get_hero_status:
+            movement_remaining, _ = self.on_get_hero_status(hero.id)
+        
         # Get hero color by class (same as rendering)
         base_color = "#68c" if hero.class_type == "Warrior" else "#a6c"
         # Lighten the color for the highlight
         highlight_color = self._lighten_color(base_color, 0.3)
-        print(f"[DEBUG] Hero class: {hero.class_type}, base_color: {base_color}")
+        print(f"[DEBUG] Hero class: {hero.class_type}, base_color: {base_color}, remaining_movement: {movement_remaining}")
         
-        # Find all tiles within movement range
-        print(f"[DEBUG] Checking tiles within speed {hero.speed}, canvas size: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
+        # Find all tiles within remaining movement range
+        print(f"[DEBUG] Checking tiles within remaining {movement_remaining}, canvas size: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
         count_checked = 0
         count_walkable = 0
         count_onscreen = 0
         count_drawn = 0
-        for dx in range(-hero.speed, hero.speed + 1):
-            for dy in range(-hero.speed, hero.speed + 1):
-                if abs(dx) + abs(dy) > hero.speed or (dx == 0 and dy == 0):
+        for dx in range(-movement_remaining, movement_remaining + 1):
+            for dy in range(-movement_remaining, movement_remaining + 1):
+                if abs(dx) + abs(dy) > movement_remaining or (dx == 0 and dy == 0):
                     continue
                 
                 tx, ty = hero.x + dx, hero.y + dy
@@ -498,21 +514,23 @@ class DungeonViewTk:
                 if (tx, ty) not in self.dungeon.explored:
                     continue
                 
-                # Check path is clear (no walls blocking)
+                # Check path is clear - natural movement (any x/y combination)
                 path_clear = True
                 dist = abs(dx) + abs(dy)
                 if dist > 0:
                     curr_x, curr_y = hero.x, hero.y
-                    step_dx = 0 if tx == curr_x else (1 if tx > curr_x else -1)
-                    step_dy = 0 if ty == curr_y else (1 if ty > curr_y else -1)
-                    steps = 0
-                    while (curr_x, curr_y) != (tx, ty) and steps < dist:
-                        curr_x += step_dx
-                        curr_y += step_dy
-                        steps += 1
-                        if (curr_x, curr_y) == (tx, ty):
-                            break
-                        if not self.dungeon.is_walkable(curr_x, curr_y):
+                    # Build path tiles
+                    path_tiles = []
+                    while curr_x != tx:
+                        curr_x += 1 if tx > curr_x else -1
+                        path_tiles.append((curr_x, curr_y))
+                    while curr_y != ty:
+                        curr_y += 1 if ty > curr_y else -1
+                        path_tiles.append((curr_x, curr_y))
+                    
+                    # Check intermediate tiles
+                    for path_tile in path_tiles[:-1] if path_tiles else []:
+                        if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
                             path_clear = False
                             break
                 
