@@ -576,6 +576,31 @@ class Dungeon:
         # (where passages turn, split, or meet)
         return (x, y) in self.pending_junctions
     
+    def _is_valid_door_position(self, x: int, y: int, direction: Tuple[int, int]) -> bool:
+        """Check if a door position is valid (not at corners/junctions)."""
+        # Get the passage tile that this door is adjacent to
+        # Door is at (x,y), passage is one step back in the perpendicular direction
+        perp_dirs = self._get_both_perpendicular(direction)
+        
+        # Check both possible passage tiles this door could be adjacent to
+        for perp in perp_dirs:
+            passage_x = x + perp[0]
+            passage_y = y + perp[1]
+            # If this passage tile is a junction, door is invalid
+            if self._is_junction_position(passage_x, passage_y):
+                return False
+        
+        # Also check if this position itself has multiple floor neighbors (is a junction)
+        floor_neighbors = 0
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            if self.get_tile(x + dx, y + dy) == TileType.FLOOR:
+                floor_neighbors += 1
+        # If more than 2 floor neighbors, this is a junction/corner
+        if floor_neighbors > 2:
+            return False
+        
+        return True
+    
     def generate_passage_from(self, x: int, y: int, direction: Tuple[int, int],
                                auto_explore: bool = True) -> List[Tuple[int, int]]:
         """Generate a passage from a junction."""
@@ -635,35 +660,40 @@ class Dungeon:
             
             # Check for features (doors) - Passage Features Table (2D12)
             # Skip door placement at junction positions (where passages intersect/turn)
-            # Check if this position has multiple passage connections (a junction)
-            is_junction = self._is_junction_position(current_x, current_y)
-            
             feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                 # Wandering monsters - mark this tile for encounter
                 self.wandering_monsters.add((current_x, current_y))
                 self._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
-            elif 16 <= feature_roll <= 19 and not is_junction:
-                # 1 door on side (not at junctions)
+            elif 16 <= feature_roll <= 19:
+                # 1 door on side - check if position is suitable (not at junction)
                 side_dir = self._get_perpendicular(direction)
                 door_x = current_x + side_dir[0]
                 door_y = current_y + side_dir[1]
-                self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
-                if self.get_tile(door_x, door_y) in (TileType.UNEXPLORED, TileType.WALL):
-                    self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
-                    self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
-                    self._log(f"    Placed 1 door at ({door_x}, {door_y})")
-            elif 20 <= feature_roll <= 21 and not is_junction:
-                # 2 doors on sides (not at junctions)
-                side_dirs = self._get_both_perpendicular(direction)
-                for side_dir in side_dirs:
-                    door_x = current_x + side_dir[0]
-                    door_y = current_y + side_dir[1]
+                # Don't place door at junction/corner positions
+                if self._is_valid_door_position(door_x, door_y, direction):
                     self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
                     if self.get_tile(door_x, door_y) in (TileType.UNEXPLORED, TileType.WALL):
                         self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
                         self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
-                        self._log(f"    Placed door at ({door_x}, {door_y})")
+                        self._log(f"    Placed 1 door at ({door_x}, {door_y})")
+                else:
+                    self._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
+            elif 20 <= feature_roll <= 21:
+                # 2 doors on sides - check if positions are suitable
+                side_dirs = self._get_both_perpendicular(direction)
+                for side_dir in side_dirs:
+                    door_x = current_x + side_dir[0]
+                    door_y = current_y + side_dir[1]
+                    # Don't place door at junction/corner positions
+                    if self._is_valid_door_position(door_x, door_y, direction):
+                        self._log(f"    Attempting door at ({door_x}, {door_y}), tile: {self.get_tile(door_x, door_y).name}")
+                        if self.get_tile(door_x, door_y) in (TileType.UNEXPLORED, TileType.WALL):
+                            self.grid[(door_x, door_y)] = TileType.DOOR_CLOSED
+                            self.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}  # From passage
+                            self._log(f"    Placed door at ({door_x}, {door_y})")
+                    else:
+                        self._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
         
         # Roll passage end
         end_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
