@@ -126,6 +126,13 @@ class GameState:
         
         if tile.value == 10:  # STAIRS_OUT
             self._exit_dungeon()
+        
+        # Check for wandering monsters in passages
+        if (x, y) in self.dungeon.wandering_monsters:
+            self.dungeon.wandering_monsters.remove((x, y))  # Remove so it only triggers once
+            self.combat_log.append("Wandering monsters appear!")
+            monster_ids = roll_lair_encounter()
+            self._start_combat(monster_ids)
     
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""

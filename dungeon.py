@@ -34,6 +34,7 @@ class Dungeon:
         self.explored: set = set()
         self.doors: Dict[Tuple[int, int], dict] = {}  # (x,y) -> {is_open: bool, from_room: bool}
         self.monsters: Dict[Tuple[int, int], str] = {}  # (x,y) -> monster_instance_id
+        self.wandering_monsters: Set[Tuple[int, int]] = set()  # Tiles that trigger wandering monsters
         self.debug_log = debug_log  # Optional list to append debug messages
         self.treasure: Dict[Tuple[int, int], bool] = {}  # (x,y) -> is_open
         self.hero_start = (0, 0)
@@ -621,8 +622,9 @@ class Dungeon:
             # Check for features (doors) - Passage Features Table (2D12)
             feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
-                # Wandering monsters (triggered in game logic)
-                pass  # Game will check this and spawn
+                # Wandering monsters - mark this tile for encounter
+                self.wandering_monsters.add((current_x, current_y))
+                self._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
             elif 16 <= feature_roll <= 19:
                 # 1 door on side
                 side_dir = self._get_perpendicular(direction)
@@ -855,6 +857,7 @@ class Dungeon:
             "explored": [f"{x},{y}" for x, y in self.explored],
             "doors": {f"{x},{y}": v for (x, y), v in self.doors.items()},
             "monsters": {f"{x},{y}": v for (x, y), v in self.monsters.items()},
+            "wandering_monsters": [f"{x},{y}" for x, y in self.wandering_monsters],
             "treasure": {f"{x},{y}": v for (x, y), v in self.treasure.items()},
             "hero_start": self.hero_start,
             "pending_junctions": pending
@@ -884,6 +887,11 @@ class Dungeon:
         for key, val in data.get("monsters", {}).items():
             x, y = map(int, key.split(","))
             dungeon.monsters[(x, y)] = val
+        
+        dungeon.wandering_monsters = set()
+        for pos_str in data.get("wandering_monsters", []):
+            x, y = map(int, pos_str.split(","))
+            dungeon.wandering_monsters.add((x, y))
         
         dungeon.treasure = {}
         for key, val in data.get("treasure", {}).items():
