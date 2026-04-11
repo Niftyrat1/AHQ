@@ -34,7 +34,8 @@ class GameState:
         self.hero_phase_active = True
         self.turn_count = 0
         
-        self.heroes_acted_this_phase: set = set()  # Track which heroes have moved/attacked
+        self.hero_movement_remaining: dict = {}  # hero_id -> remaining move points
+        self.hero_has_attacked: set = set()       # track who has attacked this phase
         
         self.combat_log: List[str] = []
         self.experience_gained = 0
@@ -55,6 +56,10 @@ class GameState:
         self.experience_gained = 0
         self.gold_found = 0
         
+        # Initialize movement tracking
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
+        
         # Place heroes
         start_x, start_y = self.dungeon.hero_start
         for i, hero in enumerate(self.party):
@@ -71,15 +76,16 @@ class GameState:
             self.combat_log.append(f"{hero.name} is dead/KO!")
             return False
         
-        # Check if hero already acted this phase
-        if hero.id in self.heroes_acted_this_phase:
-            self.combat_log.append(f"{hero.name} has already acted this phase!")
+        # Check remaining movement
+        remaining = self.hero_movement_remaining.get(hero.id, hero.speed)
+        if remaining <= 0:
+            self.combat_log.append(f"{hero.name} has no movement left!")
             return False
         
         # Check distance
         dist = abs(hero.x - x) + abs(hero.y - y)
-        if dist > hero.speed:
-            self.combat_log.append(f"Too far! Distance {dist} > speed {hero.speed}")
+        if dist > remaining:
+            self.combat_log.append(f"Too far! Distance {dist} > remaining movement {remaining}")
             return False
         
         # Check if walkable
@@ -103,8 +109,8 @@ class GameState:
         # Move
         hero.x, hero.y = x, y
         
-        # Mark as having acted this phase
-        self.heroes_acted_this_phase.add(hero.id)
+        # Deduct movement points
+        self.hero_movement_remaining[hero.id] = remaining - dist
         
         # Check for junctions (this will explore new passages if it's a pending junction)
         self.dungeon.check_and_generate_junction(x, y)
@@ -126,9 +132,9 @@ class GameState:
         if hero.is_dead or hero.is_ko or monster.is_dead:
             return False
         
-        # Check if hero already acted this phase
-        if hero.id in self.heroes_acted_this_phase:
-            self.combat_log.append(f"{hero.name} has already acted this phase!")
+        # Check if hero already attacked this phase
+        if hero.id in self.hero_has_attacked:
+            self.combat_log.append(f"{hero.name} has already attacked this phase!")
             return False
         
         # Must be adjacent
@@ -138,8 +144,8 @@ class GameState:
         # Resolve attack
         hit, damage, result = resolve_melee_attack(hero, monster, self.combat_log)
         
-        # Mark as having acted this phase
-        self.heroes_acted_this_phase.add(hero.id)
+        # Mark as having attacked this phase
+        self.hero_has_attacked.add(hero.id)
         
         if monster.is_dead:
             self.experience_gained += monster.pv
@@ -162,7 +168,9 @@ class GameState:
             self._run_combat_gm_phase()
         
         self.hero_phase_active = True
-        self.heroes_acted_this_phase.clear()  # Reset for next hero phase
+        # Reset movement and attack tracking for next hero phase
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
         self.turn_count += 1
         
         # Check for dead party
@@ -205,7 +213,8 @@ class GameState:
         self.mode = "COMBAT"
         
         # Reset hero actions for new combat round
-        self.heroes_acted_this_phase.clear()
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
         
         # Create monsters
         spawn_positions = self._get_spawn_positions(len(monster_ids))
@@ -268,7 +277,9 @@ class GameState:
         self.mode = "DUNGEON"
         self.combat_log.append("Combat ended. Monsters defeated!")
         self.monsters = []
-        self.heroes_acted_this_phase.clear()  # Reset for exploration phase
+        # Reset for exploration phase
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
     
     def open_door(self, x: int, y: int) -> bool:
         """Open a door and possibly trigger combat."""
@@ -339,7 +350,8 @@ class GameState:
             ],
             "current_phase": self.current_phase,
             "hero_phase_active": self.hero_phase_active,
-            "heroes_acted_this_phase": list(self.heroes_acted_this_phase),
+            "hero_movement_remaining": self.hero_movement_remaining,
+            "hero_has_attacked": list(self.hero_has_attacked),
             "turn_count": self.turn_count,
             "combat_log": self.combat_log[-50:],  # Last 50 messages
             "experience_gained": self.experience_gained,
@@ -386,7 +398,8 @@ class GameState:
             
             self.current_phase = data.get("current_phase", "EXPLORATION")
             self.hero_phase_active = data.get("hero_phase_active", True)
-            self.heroes_acted_this_phase = set(data.get("heroes_acted_this_phase", []))
+            self.hero_movement_remaining = data.get("hero_movement_remaining", {h["id"]: h["speed"] for h in data.get("party", [])})
+            self.hero_has_attacked = set(data.get("hero_has_attacked", []))
             self.turn_count = data.get("turn_count", 0)
             self.combat_log = data.get("combat_log", [])
             self.experience_gained = data.get("experience_gained", 0)

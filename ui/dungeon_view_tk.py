@@ -17,7 +17,7 @@ class DungeonViewTk:
     """Dungeon exploration view using tkinter canvas."""
     
     def __init__(self, root: tk.Tk, on_hero_move=None, on_hero_attack=None,
-                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None):
+                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None):
         self.root = root
         self.on_hero_move = on_hero_move
         self.on_hero_attack = on_hero_attack
@@ -25,6 +25,7 @@ class DungeonViewTk:
         self.on_exit_dungeon = on_exit_dungeon
         self.on_stairs_down = on_stairs_down
         self.on_get_hero_acted = on_get_hero_acted
+        self.on_get_hero_status = on_get_hero_status
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -341,6 +342,9 @@ class DungeonViewTk:
                     elif tile == TileType.DOOR_CLOSED:
                         color = "#8b5a2b"
                         outline = "#6b4a1b"
+                    elif tile == TileType.DOOR_OPEN:
+                        color = "#bb8a5b"  # Lighter shade of closed door brown
+                        outline = "#9b6a3b"
                     elif tile == TileType.STAIRS_OUT:
                         color = "#c8b896"
                         outline = "#a89876"
@@ -432,8 +436,16 @@ class DungeonViewTk:
             
             wound_color = "#f55" if hero.current_wounds <= hero.max_wounds // 2 else "#ddd"
             
+            # Get hero status if callback available
+            movement_remaining = hero.speed
+            has_attacked = False
+            if self.on_get_hero_status:
+                movement_remaining, has_attacked = self.on_get_hero_status(hero.id)
+            
+            attack_status = " A" if has_attacked else ""
+            
             line = f"{hero.name:12} {status:6}\n"
-            line += f"  W:{hero.current_wounds:2}/{hero.max_wounds:2} F:{hero.current_fate} \n\n"
+            line += f"  W:{hero.current_wounds:2}/{hero.max_wounds:2} F:{hero.current_fate} M:{movement_remaining}{attack_status}\n\n"
             
             self.party_text.insert(tk.END, line)
         
