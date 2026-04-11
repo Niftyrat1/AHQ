@@ -570,6 +570,12 @@ class Dungeon:
         """Check if position is near the stairs entrance."""
         return abs(x - self.hero_start[0]) + abs(y - self.hero_start[1]) <= distance
     
+    def _is_junction_position(self, x: int, y: int) -> bool:
+        """Check if position is a junction (turn or split in passage)."""
+        # A junction is any position registered in pending_junctions
+        # (where passages turn, split, or meet)
+        return (x, y) in self.pending_junctions
+    
     def generate_passage_from(self, x: int, y: int, direction: Tuple[int, int],
                                auto_explore: bool = True) -> List[Tuple[int, int]]:
         """Generate a passage from a junction."""
