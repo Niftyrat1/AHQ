@@ -26,6 +26,7 @@ class DungeonViewTk:
         self.on_stairs_down = on_stairs_down
         self.on_get_hero_acted = on_get_hero_acted
         self.on_get_hero_status = on_get_hero_status
+        self.on_get_monsters = None
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -464,6 +465,9 @@ class DungeonViewTk:
     
     def update_state(self):
         """Update display from game state."""
+        # Sync monsters from game state
+        if self.on_get_monsters:
+            self.monsters = self.on_get_monsters()
         self._center_camera()
         self._update_display()
         
