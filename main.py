@@ -129,6 +129,7 @@ def main():
         dungeon_view.on_exit_dungeon = on_exit_dungeon
         dungeon_view.on_stairs_down = on_stairs_down
         dungeon_view.on_get_hero_acted = on_get_hero_acted
+        dungeon_view.on_get_hero_status = on_get_hero_status
         dungeon_view.setup_dungeon(game.dungeon, game.party)
         dungeon_view.update_state()
     
