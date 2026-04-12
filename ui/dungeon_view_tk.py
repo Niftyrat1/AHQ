@@ -146,7 +146,7 @@ class DungeonViewTk:
         # Camera in grid coordinates (not pixels)
         calc_x = int(avg_x - canvas_width // 2 // TILE_SIZE)
         calc_y = int(avg_y - canvas_height // 2 // TILE_SIZE + 2)
-        print(f"[CAMERA] avg=({avg_x},{avg_y}), canvas={canvas_width}x{canvas_height}, calculated=({calc_x},{calc_y}), current=({self.camera_x},{self.camera_y})")
+        # print(f"[CAMERA] avg=({avg_x},{avg_y}), canvas={canvas_width}x{canvas_height}, calculated=({calc_x},{calc_y}), current=({self.camera_x},{self.camera_y})")
         self.camera_x = calc_x
         self.camera_y = calc_y
     
