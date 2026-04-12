@@ -381,6 +381,8 @@ class Dungeon:
             room_type = "quest"
             width, height = random.randint(8, 12), random.randint(8, 12)
         
+        self._log(f"  Room generation roll: {roll} -> {room_type} ({width}x{height})")
+        
         # Create room
         room_tiles = []
         room_walls = []
@@ -696,6 +698,7 @@ class Dungeon:
             # Check for features (doors) - Passage Features Table (2D12)
             # Skip door placement at junction positions (where passages intersect/turn)
             feature_roll = random.randint(1, 12) + random.randint(1, 12)  # Proper 2D12 bell curve
+            self._log(f"    Passage feature roll: {feature_roll}")
             if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                 # Wandering monsters - mark this tile for encounter
                 self.wandering_monsters.add((current_x, current_y))
