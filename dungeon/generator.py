@@ -131,6 +131,7 @@ def generate_passage_from(
             if is_dead_end_or_stairs:
                 if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                     dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
+                    dungeon.explored.add((wall_x, wall_y))
                     dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
             elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
                 dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
@@ -144,6 +145,7 @@ def generate_passage_from(
             dungeon._log(f"    Wall cap check at ({beyond_x}, {beyond_y}): {beyond_tile.name}")
             if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                 dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
+                dungeon.explored.add((beyond_x, beyond_y))
                 dungeon._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
             else:
                 dungeon._log(f"    SKIPPED wall cap at ({beyond_x}, {beyond_y}) - tile is {beyond_tile.name}")

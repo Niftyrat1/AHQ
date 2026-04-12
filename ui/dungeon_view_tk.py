@@ -236,31 +236,43 @@ class DungeonViewTk:
         
         # print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, remaining: {remaining_movement}")
         
-        # Check path is clear - allow natural movement (any combination of x/y steps)
+        # Check path is clear - try both X-first and Y-first paths
         path_clear = True
         if dist > 0 and dist <= remaining_movement:
-            # Build list of tiles to check - any path with total dist is valid
-            curr_x, curr_y = self.selected_hero.x, self.selected_hero.y
+            hero_x, hero_y = self.selected_hero.x, self.selected_hero.y
             target_x, target_y = x, y
             
-            # Create path: move in x direction first, then y (any order works for Manhattan)
-            path_tiles = []
-            # X movement
+            # Path 1: X first, then Y
+            curr_x, curr_y = hero_x, hero_y
+            path1_clear = True
             while curr_x != target_x:
                 curr_x += 1 if target_x > curr_x else -1
-                path_tiles.append((curr_x, curr_y))
-            # Y movement
+                if not self.dungeon.is_walkable(curr_x, curr_y):
+                    path1_clear = False
+                    break
+            if path1_clear:
+                while curr_y != target_y:
+                    curr_y += 1 if target_y > curr_y else -1
+                    if not self.dungeon.is_walkable(curr_x, curr_y):
+                        path1_clear = False
+                        break
+            
+            # Path 2: Y first, then X
+            curr_x, curr_y = hero_x, hero_y
+            path2_clear = True
             while curr_y != target_y:
                 curr_y += 1 if target_y > curr_y else -1
-                path_tiles.append((curr_x, curr_y))
-            
-            # Check all intermediate tiles (excluding final destination)
-            for path_tile in path_tiles[:-1] if path_tiles else []:
-                path_tile_type = self.dungeon.get_tile(path_tile[0], path_tile[1])
-                if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
-                    # print(f"[MOVE] Blocked at {path_tile} by {path_tile_type.name}")
-                    path_clear = False
+                if not self.dungeon.is_walkable(curr_x, curr_y):
+                    path2_clear = False
                     break
+            if path2_clear:
+                while curr_x != target_x:
+                    curr_x += 1 if target_x > curr_x else -1
+                    if not self.dungeon.is_walkable(curr_x, curr_y):
+                        path2_clear = False
+                        break
+            
+            path_clear = path1_clear or path2_clear
         
         if dist <= remaining_movement and walkable and path_clear:
             # Check not occupied
