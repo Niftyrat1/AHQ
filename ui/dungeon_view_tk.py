@@ -518,8 +518,12 @@ class DungeonViewTk:
                 
                 # Check if walkable, visible (explored), and not occupied
                 if not self.dungeon.is_walkable(tx, ty):
+                    if abs(tx - hero.x) + abs(ty - hero.y) <= 2:  # Log nearby non-walkable
+                        print(f"[MOVE] Skip ({tx},{ty}): not walkable, tile={self.dungeon.get_tile(tx, ty).name}")
                     continue
                 if (tx, ty) not in self.dungeon.explored:
+                    if abs(tx - hero.x) + abs(ty - hero.y) <= 5:  # Log nearby unexplored
+                        print(f"[MOVE] Skip ({tx},{ty}): not explored")
                     continue
                 
                 # Check path is clear - natural movement (any x/y combination)
