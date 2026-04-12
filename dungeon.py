@@ -666,16 +666,15 @@ class Dungeon:
                 if tile == TileType.UNEXPLORED:
                     pass  # Can generate here
                 elif tile == TileType.FLOOR:
-                    # Check if this floor is part of an existing room - if so, stop
+                    # Check if this floor is part of an existing room or passage - if so, stop
+                    # to prevent passages from crossing through each other
                     for room in self.rooms:
                         if (current_x, current_y) in room:
                             self._log(f"    Blocked at ({current_x}, {current_y}) - part of existing room, stopping")
                             return passage_tiles
-                    # Already floor from previous passage generation, continue
-                    passage_tiles.append((current_x, current_y))
-                    if auto_explore:
-                        self.explored.add((current_x, current_y))
-                    continue
+                    # Existing passage floor - stop to prevent passage crossings
+                    self._log(f"    Blocked at ({current_x}, {current_y}) - existing passage, stopping")
+                    return passage_tiles
                 else:
                     # Blocked by wall, door, stairs, etc. - don't overwrite, just stop
                     self._log(f"    Blocked at ({current_x}, {current_y}) by {tile.name}, stopping")
