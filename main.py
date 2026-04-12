@@ -131,6 +131,7 @@ def main():
         dungeon_view.on_get_hero_acted = on_get_hero_acted
         dungeon_view.on_get_hero_status = on_get_hero_status
         dungeon_view.on_get_monsters = lambda: game.monsters
+        dungeon_view.on_open_door = game.open_door
         dungeon_view.setup_dungeon(game.dungeon, game.party)
         dungeon_view.update_state()
     

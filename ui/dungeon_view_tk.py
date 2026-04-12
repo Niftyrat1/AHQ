@@ -17,7 +17,7 @@ class DungeonViewTk:
     """Dungeon exploration view using tkinter canvas."""
     
     def __init__(self, root: tk.Tk, on_hero_move=None, on_hero_attack=None,
-                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None):
+                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None, on_open_door=None):
         self.root = root
         self.on_hero_move = on_hero_move
         self.on_hero_attack = on_hero_attack
@@ -26,7 +26,9 @@ class DungeonViewTk:
         self.on_stairs_down = on_stairs_down
         self.on_get_hero_acted = on_get_hero_acted
         self.on_get_hero_status = on_get_hero_status
+        self.on_open_door = on_open_door
         self.on_get_monsters = None
+        self.on_open_door = None
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -203,8 +205,9 @@ class DungeonViewTk:
             if not self.dungeon.is_adjacent(self.selected_hero.x, self.selected_hero.y, x, y):
                 self._show_message("Not adjacent to door!")
                 return
-            if self.dungeon.open_door(x, y):
+            if self.on_open_door and self.on_open_door(x, y):
                 self.add_log_message(f"{self.selected_hero.name} opens a door")
+                self._sync_from_game()
                 self._update_display()
             return
         
