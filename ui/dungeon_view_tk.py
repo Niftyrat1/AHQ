@@ -533,23 +533,41 @@ class DungeonViewTk:
                 path_clear = True
                 dist = abs(dx) + abs(dy)
                 if dist > 0:
+                    # Try path 1: X first, then Y
                     curr_x, curr_y = hero.x, hero.y
-                    # Build path tiles
-                    path_tiles = []
+                    path1_tiles = []
                     while curr_x != tx:
                         curr_x += 1 if tx > curr_x else -1
-                        path_tiles.append((curr_x, curr_y))
+                        path1_tiles.append((curr_x, curr_y))
                     while curr_y != ty:
                         curr_y += 1 if ty > curr_y else -1
-                        path_tiles.append((curr_x, curr_y))
+                        path1_tiles.append((curr_x, curr_y))
                     
-                    # Check intermediate tiles
-                    for path_tile in path_tiles[:-1] if path_tiles else []:
+                    path1_clear = True
+                    for path_tile in path1_tiles[:-1] if path1_tiles else []:
                         if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
-                            if abs(tx - hero.x) + abs(ty - hero.y) <= 3:
-                                print(f"[MOVE] Path blocked at {path_tile} when going to ({tx},{ty})")
-                            path_clear = False
+                            path1_clear = False
                             break
+                    
+                    # Try path 2: Y first, then X
+                    curr_x, curr_y = hero.x, hero.y
+                    path2_tiles = []
+                    while curr_y != ty:
+                        curr_y += 1 if ty > curr_y else -1
+                        path2_tiles.append((curr_x, curr_y))
+                    while curr_x != tx:
+                        curr_x += 1 if tx > curr_x else -1
+                        path2_tiles.append((curr_x, curr_y))
+                    
+                    path2_clear = True
+                    for path_tile in path2_tiles[:-1] if path2_tiles else []:
+                        if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
+                            path2_clear = False
+                            break
+                    
+                    path_clear = path1_clear or path2_clear
+                    if not path_clear and abs(tx - hero.x) + abs(ty - hero.y) <= 3:
+                        print(f"[MOVE] Both paths blocked to ({tx},{ty})")
                 
                 if not path_clear:
                     continue
