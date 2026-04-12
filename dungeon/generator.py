@@ -275,22 +275,24 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     else:
         center_x, center_y = door_x + half_w - 1, door_y
     
-    # Check if room would overlap heavily - try sliding along wall first
-    def _count_overlap(cx, cy):
+    # Check if room would overlap heavily - try sliding along wall first, then rotation
+    def _count_overlap(cx, cy, w_half, h_half):
         count = 0
-        for x in range(cx - half_w, cx + half_w + 1):
-            for y in range(cy - half_h, cy + half_h + 1):
+        for x in range(cx - w_half, cx + w_half + 1):
+            for y in range(cy - h_half, cy + h_half + 1):
                 if dungeon.get_tile(x, y) not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                     count += 1
         return count
     
-    overlap_count = _count_overlap(center_x, center_y)
+    overlap_count = _count_overlap(center_x, center_y, half_w, half_h)
+    rotated = False
     
     # If too much overlap, try sliding the room along the wall
     if overlap_count > 2:
         dungeon._log(f"Room at ({center_x},{center_y}) overlaps ({overlap_count}), trying to slide along wall")
         best_center = (center_x, center_y)
         best_overlap = overlap_count
+        best_half_w, best_half_h = half_w, half_h
         
         # Try sliding left/right or up/down along the entrance wall
         for offset in range(-2, 3):  # Try -2, -1, 0, 1, 2 tiles offset
@@ -303,13 +305,62 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
                 try_x = center_x
                 try_y = center_y + offset
             
-            try_overlap = _count_overlap(try_x, try_y)
+            try_overlap = _count_overlap(try_x, try_y, half_w, half_h)
             dungeon._log(f"  Trying offset {offset}: center ({try_x},{try_y}), overlap {try_overlap}")
             if try_overlap < best_overlap:
                 best_overlap = try_overlap
                 best_center = (try_x, try_y)
         
-        if best_overlap <= 2:
+        # If sliding didn't work, try rotating 90 degrees
+        if best_overlap > 2 and width != height:  # Only rotate if not square
+            dungeon._log(f"  Trying 90-degree rotation ({width}x{height} -> {height}x{width})")
+            rot_half_w, rot_half_h = half_h, half_w  # Swap dimensions
+            
+            # Recalculate center for rotated room
+            if entrance_dir == (0, -1):
+                rot_x, rot_y = door_x, door_y - rot_half_h + 1
+            elif entrance_dir == (0, 1):
+                rot_x, rot_y = door_x, door_y + rot_half_h - 1
+            elif entrance_dir == (-1, 0):
+                rot_x, rot_y = door_x - rot_half_w + 1, door_y
+            else:
+                rot_x, rot_y = door_x + rot_half_w - 1, door_y
+            
+            rot_overlap = _count_overlap(rot_x, rot_y, rot_half_w, rot_half_h)
+            dungeon._log(f"  Rotated room at ({rot_x},{rot_y}) has overlap {rot_overlap}")
+            
+            # Try sliding the rotated room too
+            if rot_overlap > 2:
+                for offset in range(-2, 3):
+                    if offset == 0:
+                        continue
+                    if entrance_dir in [(0, -1), (0, 1)]:
+                        try_x = rot_x + offset
+                        try_y = rot_y
+                    else:
+                        try_x = rot_x
+                        try_y = rot_y + offset
+                    
+                    try_overlap = _count_overlap(try_x, try_y, rot_half_w, rot_half_h)
+                    dungeon._log(f"    Rotated offset {offset}: center ({try_x},{try_y}), overlap {try_overlap}")
+                    if try_overlap < rot_overlap:
+                        rot_overlap = try_overlap
+                        rot_x, rot_y = try_x, try_y
+            
+            if rot_overlap <= 2:
+                dungeon._log(f"  Using rotated room at ({rot_x},{rot_y}) with overlap {rot_overlap}")
+                center_x, center_y = rot_x, rot_y
+                half_w, half_h = rot_half_w, rot_half_h
+                width, height = height, width  # Swap for rest of generation
+                rotated = True
+            elif best_overlap <= 2:
+                center_x, center_y = best_center
+                dungeon._log(f"  Using slid position ({center_x},{center_y}) with overlap {best_overlap}")
+            else:
+                dungeon._log(f"  Best overlap still too high (slid={best_overlap}, rotated={rot_overlap}), creating passage instead")
+                generate_passage_from(dungeon, door_x - entrance_dir[0], door_y - entrance_dir[1], entrance_dir)
+                return
+        elif best_overlap <= 2:
             center_x, center_y = best_center
             dungeon._log(f"  Using slid position ({center_x},{center_y}) with overlap {best_overlap}")
         else:
