@@ -82,9 +82,9 @@ def resolve_melee_attack(
     messages.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
     damage_dice = attacker.get_damage_dice()
-    damage = roll_damage(damage_dice, defender.toughness, is_critical)
+    damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
-    messages.append(f"  Damage: {damage} wounds")
+    messages.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
     
     # Apply damage
     died = defender.take_damage(damage)
@@ -140,9 +140,9 @@ def resolve_monster_attack(
     
     # Roll damage
     damage_dice = attacker.get_damage_dice()
-    damage = roll_damage(damage_dice, defender.toughness, is_critical)
+    damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
-    messages.append(f"  Damage: {damage} wounds")
+    messages.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
     
     # Check for fate point usage
     hero_ko = False
@@ -165,18 +165,23 @@ def resolve_monster_attack(
     return True, damage, hero_ko
 
 
-def roll_damage(dice: int, toughness: int, is_critical: bool = False) -> int:
+def roll_damage(dice: int, toughness: int, is_critical: bool = False) -> tuple:
     """
     Roll damage dice against toughness.
     Each die that rolls >= toughness = 1 wound.
     Critical hits: roll extra dice and add (reroll 12s).
+    
+    Returns:
+        (wounds: int, rolls: List[int]) - total wounds and individual rolls
     """
     wounds = 0
     dice_to_roll = dice
+    rolls = []
     
     while dice_to_roll > 0:
         for _ in range(dice_to_roll):
             roll = roll_d(12)
+            rolls.append(roll)
             if roll >= toughness:
                 wounds += 1
         
@@ -188,7 +193,7 @@ def roll_damage(dice: int, toughness: int, is_critical: bool = False) -> int:
         
         dice_to_roll = 0
     
-    return wounds
+    return wounds, rolls
 
 
 def do_surprise_roll(has_elf: bool = False, has_sentry: bool = False) -> Tuple[str, int, int]:
