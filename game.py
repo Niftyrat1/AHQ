@@ -494,6 +494,15 @@ class GameState:
             print(f"Error loading save: {e}")
             return False
     
+    def get_game_state(self) -> dict:
+        """Get current game state for UI sync."""
+        return {
+            'phase': self.current_phase,
+            'mode': self.mode,
+            'hero_phase': self.hero_phase_active,
+            'monsters': self.monsters
+        }
+    
     def has_save_game(self) -> bool:
         """Check if a save game exists."""
         return self.SAVE_FILE.exists()

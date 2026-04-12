@@ -17,7 +17,7 @@ class DungeonViewTk:
     """Dungeon exploration view using tkinter canvas."""
     
     def __init__(self, root: tk.Tk, on_hero_move=None, on_hero_attack=None,
-                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None, on_open_door=None):
+                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None, on_open_door=None, on_get_game_state=None):
         self.root = root
         self.on_hero_move = on_hero_move
         self.on_hero_attack = on_hero_attack
@@ -28,6 +28,7 @@ class DungeonViewTk:
         self.on_get_hero_status = on_get_hero_status
         self.on_open_door = on_open_door
         self.on_get_monsters = None
+        self.on_get_game_state = on_get_game_state
         self.on_open_door = None
         
         self.dungeon: Optional[Dungeon] = None
@@ -298,7 +299,7 @@ class DungeonViewTk:
                     self.selected_hero.y = y
                     self.dungeon._explore_from(x, y)
                     self._clear_movement_range()
-                    self._update_display()
+                    self.update_state()  # Sync combat mode, monsters, phase from game
             else:
                 self._show_message("Square occupied!")
         else:
@@ -487,6 +488,13 @@ class DungeonViewTk:
         # Sync monsters from game state
         if self.on_get_monsters:
             self.monsters = self.on_get_monsters()
+        
+        # Sync game state (phase, combat mode)
+        if self.on_get_game_state:
+            state = self.on_get_game_state()
+            self.current_phase = state.get('phase', 'EXPLORATION')
+            self.combat_mode = state.get('mode', 'DUNGEON') == 'COMBAT'
+            self.hero_phase = state.get('hero_phase', True)
         self._center_camera()
         self._update_display()
         
