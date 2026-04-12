@@ -72,6 +72,8 @@ def generate_passage_from(
                 existing = dungeon.get_tile(wall_x, wall_y)
                 if existing in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                     dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
+                    if auto_explore:
+                        dungeon.explored.add((wall_x, wall_y))
             
             # Check for features (doors) - Passage Features Table (2D12)
             # Only roll once per section (at tile 2 of 4), not every tile
