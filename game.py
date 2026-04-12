@@ -91,7 +91,7 @@ class GameState:
         # Check if walkable
         tile = self.dungeon.get_tile(x, y)
         explored = self.dungeon.is_explored(x, y)
-        print(f"[DEBUG] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {self.dungeon.is_walkable(x, y)}, explored: {explored}")
+        # print(f"[DEBUG] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {self.dungeon.is_walkable(x, y)}, explored: {explored}")
         if not self.dungeon.is_walkable(x, y):
             self.combat_log.append(f"Cannot move to ({x},{y}): tile is {tile.name}")
             return False

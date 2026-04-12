@@ -234,7 +234,7 @@ class DungeonViewTk:
         if self.on_get_hero_status:
             remaining_movement, _ = self.on_get_hero_status(self.selected_hero.id)
         
-        print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, remaining: {remaining_movement}")
+        # print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, remaining: {remaining_movement}")
         
         # Check path is clear - allow natural movement (any combination of x/y steps)
         path_clear = True
@@ -583,7 +583,7 @@ class DungeonViewTk:
                     self.canvas.tag_raise(circle)  # Ensure circle is on top
                     self.movement_highlights.append(circle)
                     count_drawn += 1
-        print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
+        # print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
     
     def _clear_movement_range(self):
         """Clear movement range highlights."""
