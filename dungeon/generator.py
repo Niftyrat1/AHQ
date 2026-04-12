@@ -238,16 +238,16 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     roll = random.randint(1, 12)
     if roll <= 6:
         room_type = "normal"
-        width, height = random.randint(4, 6), random.randint(4, 6)
+        width, height = random.choice([5, 7]), random.choice([5, 7])
     elif roll <= 8:
         room_type = "hazard"
-        width, height = random.randint(4, 6), random.randint(4, 6)
+        width, height = random.choice([5, 7]), random.choice([5, 7])
     elif roll <= 10:
         room_type = "lair"
-        width, height = random.randint(6, 10), random.randint(6, 10)
+        width, height = random.choice([7, 9]), random.choice([7, 9])
     else:
         room_type = "quest"
-        width, height = random.randint(8, 12), random.randint(8, 12)
+        width, height = random.choice([9, 11]), random.choice([9, 11])
     
     dungeon._log(f"  Room generation roll: {roll} -> {room_type} ({width}x{height})")
     
