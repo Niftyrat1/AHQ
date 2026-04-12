@@ -543,6 +543,8 @@ class DungeonViewTk:
                     # Check intermediate tiles
                     for path_tile in path_tiles[:-1] if path_tiles else []:
                         if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
+                            if abs(tx - hero.x) + abs(ty - hero.y) <= 3:
+                                print(f"[MOVE] Path blocked at {path_tile} when going to ({tx},{ty})")
                             path_clear = False
                             break
                 
@@ -587,7 +589,7 @@ class DungeonViewTk:
                     self.canvas.tag_raise(circle)  # Ensure circle is on top
                     self.movement_highlights.append(circle)
                     count_drawn += 1
-        # print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
+        print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
     
     def _clear_movement_range(self):
         """Clear movement range highlights."""
