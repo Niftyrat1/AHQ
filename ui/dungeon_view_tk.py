@@ -517,14 +517,17 @@ class DungeonViewTk:
                 count_checked += 1
                 
                 # Check if walkable, visible (explored), and not occupied
+                is_north = ty < hero.y and tx == hero.x
                 if not self.dungeon.is_walkable(tx, ty):
-                    if abs(tx - hero.x) + abs(ty - hero.y) <= 2:  # Log nearby non-walkable
+                    if abs(tx - hero.x) + abs(ty - hero.y) <= 2 or is_north:  # Log nearby non-walkable or north
                         print(f"[MOVE] Skip ({tx},{ty}): not walkable, tile={self.dungeon.get_tile(tx, ty).name}")
                     continue
                 if (tx, ty) not in self.dungeon.explored:
-                    if abs(tx - hero.x) + abs(ty - hero.y) <= 5:  # Log nearby unexplored
+                    if abs(tx - hero.x) + abs(ty - hero.y) <= 5 or is_north:  # Log nearby unexplored or north
                         print(f"[MOVE] Skip ({tx},{ty}): not explored")
                     continue
+                if is_north:
+                    print(f"[MOVE] Accept ({tx},{ty}): north tile accepted")
                 
                 # Check path is clear - natural movement (any x/y combination)
                 path_clear = True
