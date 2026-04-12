@@ -308,15 +308,23 @@ class Dungeon:
         
         from_room = door_info.get("from_room", True)
         
+        self._log(f"open_door: from_room={from_room}, direction={direction}, gen_pos=({gen_x},{gen_y})")
+        self._log(f"open_door: monsters BEFORE generation = {dict(self.monsters)}")
+        
         if from_room:
             roll = random.randint(1, 12)
+            self._log(f"open_door: room generation roll = {roll} (<=6=passage, >6=room)")
             if roll <= 6:
                 generate_passage_from(self, x, y, direction)
                 self._explore_from(x, y)
             else:
+                self._log(f"open_door: generating ROOM at ({gen_x},{gen_y})")
                 _generate_room(self, gen_x, gen_y, direction, from_passage=False)
         else:
+            self._log(f"open_door: generating ROOM from passage door at ({gen_x},{gen_y})")
             _generate_room(self, gen_x, gen_y, direction, from_passage=False)
+        
+        self._log(f"open_door: monsters AFTER generation = {dict(self.monsters)}")
         
         return True
     
