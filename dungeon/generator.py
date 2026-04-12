@@ -275,18 +275,47 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     else:
         center_x, center_y = door_x + half_w - 1, door_y
     
-    # Check if room centre would overlap heavily with existing tiles
-    overlap_count = 0
-    for x in range(center_x - half_w, center_x + half_w + 1):
-        for y in range(center_y - half_h, center_y + half_h + 1):
-            if dungeon.get_tile(x, y) not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                overlap_count += 1
+    # Check if room would overlap heavily - try sliding along wall first
+    def _count_overlap(cx, cy):
+        count = 0
+        for x in range(cx - half_w, cx + half_w + 1):
+            for y in range(cy - half_h, cy + half_h + 1):
+                if dungeon.get_tile(x, y) not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+                    count += 1
+        return count
     
-    # If too much overlap, just make a small passage instead
+    overlap_count = _count_overlap(center_x, center_y)
+    
+    # If too much overlap, try sliding the room along the wall
     if overlap_count > 2:
-        dungeon._log(f"Room at ({center_x},{center_y}) overlaps too much ({overlap_count}), creating passage instead")
-        generate_passage_from(dungeon, door_x - entrance_dir[0], door_y - entrance_dir[1], entrance_dir)
-        return
+        dungeon._log(f"Room at ({center_x},{center_y}) overlaps ({overlap_count}), trying to slide along wall")
+        best_center = (center_x, center_y)
+        best_overlap = overlap_count
+        
+        # Try sliding left/right or up/down along the entrance wall
+        for offset in range(-2, 3):  # Try -2, -1, 0, 1, 2 tiles offset
+            if offset == 0:
+                continue
+            if entrance_dir in [(0, -1), (0, 1)]:  # North/South entrance - slide left/right
+                try_x = center_x + offset
+                try_y = center_y
+            else:  # East/West entrance - slide up/down
+                try_x = center_x
+                try_y = center_y + offset
+            
+            try_overlap = _count_overlap(try_x, try_y)
+            dungeon._log(f"  Trying offset {offset}: center ({try_x},{try_y}), overlap {try_overlap}")
+            if try_overlap < best_overlap:
+                best_overlap = try_overlap
+                best_center = (try_x, try_y)
+        
+        if best_overlap <= 2:
+            center_x, center_y = best_center
+            dungeon._log(f"  Using slid position ({center_x},{center_y}) with overlap {best_overlap}")
+        else:
+            dungeon._log(f"  Best overlap still too high ({best_overlap}), creating passage instead")
+            generate_passage_from(dungeon, door_x - entrance_dir[0], door_y - entrance_dir[1], entrance_dir)
+            return
     
     # Clear entrance position if it's a wall
     if dungeon.get_tile(door_x, door_y) == dungeon.TileType.WALL:
