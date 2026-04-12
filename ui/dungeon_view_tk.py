@@ -500,10 +500,10 @@ class DungeonViewTk:
         base_color = "#68c" if hero.class_type == "Warrior" else "#a6c"
         # Lighten the color for the highlight
         highlight_color = self._lighten_color(base_color, 0.3)
-        print(f"[DEBUG] Hero class: {hero.class_type}, base_color: {base_color}, remaining_movement: {movement_remaining}")
+        # print(f"[DEBUG] Hero class: {hero.class_type}, base_color: {base_color}, remaining_movement: {movement_remaining}")
         
         # Find all tiles within remaining movement range
-        print(f"[DEBUG] Checking tiles within remaining {movement_remaining}, canvas size: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
+        # print(f"[DEBUG] Checking tiles within remaining {movement_remaining}, canvas size: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
         count_checked = 0
         count_walkable = 0
         count_onscreen = 0
@@ -570,8 +570,8 @@ class DungeonViewTk:
                 # If canvas size is 1 (not ready), assume on screen
                 on_screen = (canvas_w <= 1) or (0 <= px < canvas_w and 0 <= py < canvas_h)
                 # Log first few walkable tiles
-                if count_walkable <= 5 and not occupied:
-                    print(f"[DEBUG] Walkable tile ({tx},{ty}) -> pixel ({px},{py}), camera ({self.camera_x},{self.camera_y}), canvas {canvas_w}x{canvas_h}, onscreen={on_screen}")
+                # if count_walkable <= 5 and not occupied:
+                #     print(f"[DEBUG] Walkable tile ({tx},{ty}) -> pixel ({px},{py}), camera ({self.camera_x},{self.camera_y}), canvas {canvas_w}x{canvas_h}, onscreen={on_screen}")
                 if on_screen:
                     count_onscreen += 1
                     # Draw a larger filled circle with border
