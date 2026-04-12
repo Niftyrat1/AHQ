@@ -128,10 +128,13 @@ class GameState:
             self._exit_dungeon()
         
         # Check for wandering monsters in passages
+        self.combat_log.append(f"  Checking wandering monsters at ({x}, {y}): {self.dungeon.wandering_monsters}")
         if (x, y) in self.dungeon.wandering_monsters:
+            self.combat_log.append(f"  Wandering monsters TRIGGERED at ({x}, {y})")
             self.dungeon.wandering_monsters.remove((x, y))  # Remove so it only triggers once
             self.combat_log.append("Wandering monsters appear!")
             monster_ids = roll_lair_encounter()
+            self.combat_log.append(f"  Rolled monster_ids: {monster_ids}")
             self._start_combat_random(monster_ids)
     
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
