@@ -390,7 +390,10 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     
     for x in range(center_x - half_w, center_x + half_w + 1):
         for y in range(center_y - half_h, center_y + half_h + 1):
-            if dungeon.get_tile(x, y) != dungeon.TileType.UNEXPLORED:
+            existing_tile = dungeon.get_tile(x, y)
+            if existing_tile != dungeon.TileType.UNEXPLORED:
+                if existing_tile == dungeon.TileType.FLOOR:
+                    dungeon._log(f"    Room generation skipped floor at ({x},{y}) - existing passage/room")
                 continue
             
             if abs(x - center_x) == half_w or abs(y - center_y) == half_h:
