@@ -90,11 +90,46 @@ class GameState:
         
         # Check if walkable
         tile = self.dungeon.get_tile(x, y)
-        explored = self.dungeon.is_explored(x, y)
-        # print(f"[DEBUG] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {self.dungeon.is_walkable(x, y)}, explored: {explored}")
         if not self.dungeon.is_walkable(x, y):
             self.combat_log.append(f"Cannot move to ({x},{y}): tile is {tile.name}")
             return False
+        
+        # Check path is clear - try both X-first and Y-first
+        dist = abs(hero.x - x) + abs(hero.y - y)
+        if dist > 0:
+            # Path 1: X first, then Y
+            curr_x, curr_y = hero.x, hero.y
+            path1_clear = True
+            while curr_x != x:
+                curr_x += 1 if x > curr_x else -1
+                if not self.dungeon.is_walkable(curr_x, curr_y):
+                    path1_clear = False
+                    break
+            if path1_clear:
+                while curr_y != y:
+                    curr_y += 1 if y > curr_y else -1
+                    if not self.dungeon.is_walkable(curr_x, curr_y):
+                        path1_clear = False
+                        break
+            
+            # Path 2: Y first, then X
+            curr_x, curr_y = hero.x, hero.y
+            path2_clear = True
+            while curr_y != y:
+                curr_y += 1 if y > curr_y else -1
+                if not self.dungeon.is_walkable(curr_x, curr_y):
+                    path2_clear = False
+                    break
+            if path2_clear:
+                while curr_x != x:
+                    curr_x += 1 if x > curr_x else -1
+                    if not self.dungeon.is_walkable(curr_x, curr_y):
+                        path2_clear = False
+                        break
+            
+            if not path1_clear and not path2_clear:
+                self.combat_log.append(f"Cannot move to ({x},{y}): path is blocked")
+                return False
         
         # Check for monsters blocking
         for m in self.monsters:
