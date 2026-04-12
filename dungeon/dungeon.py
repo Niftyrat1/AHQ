@@ -75,9 +75,9 @@ class Dungeon:
         self.grid[(9, 1)] = TileType.WALL
         self.explored.update([(9, 0), (9, -1), (9, 1)])
         
-        # Generate North and South passages
-        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False)
-        generate_passage_from(self, 8, 0, (0, 1), auto_explore=False)
+        # Generate North and South passages (no features in starting area)
+        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
+        generate_passage_from(self, 8, 0, (0, 1), auto_explore=False, features_enabled=False)
         
         self._log(f"  After setup: (9,0) is {self.get_tile(9, 0).name}")
     

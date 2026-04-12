@@ -17,7 +17,8 @@ def generate_passage_from(
     dungeon: "Dungeon",
     x: int, y: int,
     direction: Tuple[int, int],
-    auto_explore: bool = True
+    auto_explore: bool = True,
+    features_enabled: bool = True
 ) -> List[Tuple[int, int]]:
     """Generate a passage from a junction."""
     # Roll passage length
@@ -29,7 +30,7 @@ def generate_passage_from(
     else:
         sections = 3
     
-    dungeon._log(f"Generating passage from ({x},{y}) direction {direction}: {sections} section(s) (roll {roll})")
+    dungeon._log(f"Generating passage from ({x},{y}) direction {direction}: {sections} section(s) (roll {roll}), features={'on' if features_enabled else 'off'}")
     
     passage_tiles = []
     current_x, current_y = x, y
@@ -73,29 +74,17 @@ def generate_passage_from(
                     dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
             
             # Check for features (doors) - Passage Features Table (2D12)
-            feature_roll = random.randint(1, 12) + random.randint(1, 12)
-            dungeon._log(f"    Passage feature roll: {feature_roll}")
-            if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
-                # Wandering monsters - mark this tile for encounter
-                dungeon.wandering_monsters.add((current_x, current_y))
-                dungeon._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
-            elif 16 <= feature_roll <= 19:
-                # 1 door on side - check if position is suitable (not at junction)
-                side_dir = _get_perpendicular(direction)
-                door_x = current_x + side_dir[0]
-                door_y = current_y + side_dir[1]
-                if dungeon._is_valid_door_position(door_x, door_y, direction):
-                    dungeon._log(f"    Attempting door at ({door_x}, {door_y}), tile: {dungeon.get_tile(door_x, door_y).name}")
-                    if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                        dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
-                        dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
-                        dungeon._log(f"    Placed 1 door at ({door_x}, {door_y})")
-                else:
-                    dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
-            elif 20 <= feature_roll <= 21:
-                # 2 doors on sides - check if positions are suitable
-                side_dirs = _get_both_perpendicular(direction)
-                for side_dir in side_dirs:
+            # Only roll once per section (at tile 2 of 4), not every tile
+            if features_enabled and tile_idx == 1:  # Middle of section
+                feature_roll = random.randint(1, 12) + random.randint(1, 12)
+                dungeon._log(f"    Passage feature roll: {feature_roll}")
+                if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
+                    # Wandering monsters - mark this tile for encounter
+                    dungeon.wandering_monsters.add((current_x, current_y))
+                    dungeon._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
+                elif 16 <= feature_roll <= 19:
+                    # 1 door on side - check if position is suitable (not at junction)
+                    side_dir = _get_perpendicular(direction)
                     door_x = current_x + side_dir[0]
                     door_y = current_y + side_dir[1]
                     if dungeon._is_valid_door_position(door_x, door_y, direction):
@@ -103,9 +92,23 @@ def generate_passage_from(
                         if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                             dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                             dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
-                            dungeon._log(f"    Placed door at ({door_x}, {door_y})")
+                            dungeon._log(f"    Placed 1 door at ({door_x}, {door_y})")
                     else:
                         dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
+                elif 20 <= feature_roll <= 21:
+                    # 2 doors on sides - check if positions are suitable
+                    side_dirs = _get_both_perpendicular(direction)
+                    for side_dir in side_dirs:
+                        door_x = current_x + side_dir[0]
+                        door_y = current_y + side_dir[1]
+                        if dungeon._is_valid_door_position(door_x, door_y, direction):
+                            dungeon._log(f"    Attempting door at ({door_x}, {door_y}), tile: {dungeon.get_tile(door_x, door_y).name}")
+                            if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+                                dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
+                                dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
+                                dungeon._log(f"    Placed door at ({door_x}, {door_y})")
+                        else:
+                            dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
         
         # Roll passage end
         end_roll = random.randint(1, 12) + random.randint(1, 12)
