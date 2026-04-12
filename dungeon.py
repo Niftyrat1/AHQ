@@ -239,7 +239,7 @@ class Dungeon:
             junc_type = f"{len(exits)}-way junction"
         
         self._log(f"check_and_generate_junction at {pos}: {junc_type} with exits {exits}")
-        self._log(f"  ALL pending_junctions: {dict(self.pending_junctions)}")
+        # self._log(f"  ALL pending_junctions: {dict(self.pending_junctions)}")
         
         # Clear any blocking walls in the exit directions first
         # But don't clear if this is a room wall (part of room boundary)
@@ -262,7 +262,7 @@ class Dungeon:
         
         # Get and remove this junction from pending
         exits = self.pending_junctions.pop(pos)
-        self._log(f"  Removed {pos} from pending_junctions, remaining: {list(self.pending_junctions.keys())}")
+        # self._log(f"  Removed {pos} from pending_junctions, remaining: {list(self.pending_junctions.keys())}")
         
         # Explore passages in all pending directions
         for direction in exits:
@@ -283,7 +283,7 @@ class Dungeon:
                 # Explore this tile
                 self.explored.add((curr_x, curr_y))
                 tiles_explored += 1
-                self._log(f"    Explored tile ({curr_x}, {curr_y}): {tile.name}")
+                # self._log(f"    Explored tile ({curr_x}, {curr_y}): {tile.name}")
                 # Explore adjacent tiles (walls, doors)
                 for dx in [-1, 0, 1]:
                     for dy in [-1, 0, 1]:
@@ -292,13 +292,13 @@ class Dungeon:
                         if adj_tile != TileType.UNEXPLORED and adj_pos not in self.explored:
                             self.explored.add(adj_pos)
                             walls_explored += 1
-                            self._log(f"      Adjacent wall at {adj_pos}: {adj_tile.name}")
-            self._log(f"  Total: {tiles_explored} tiles, {walls_explored} adjacent tiles explored")
-            self._log(f"  After exploring {direction}, ALL pending_junctions: {dict(self.pending_junctions)}")
+                            # self._log(f"      Adjacent wall at {adj_pos}: {adj_tile.name}")
+            # self._log(f"  Total: {tiles_explored} tiles, {walls_explored} adjacent tiles explored")
+            # self._log(f"  After exploring {direction}, ALL pending_junctions: {dict(self.pending_junctions)}")
         # Also re-explore from current position after all directions processed
-        self._log(f"  Before _explore_from, ALL pending_junctions: {dict(self.pending_junctions)}")
+        # self._log(f"  Before _explore_from, ALL pending_junctions: {dict(self.pending_junctions)}")
         self._explore_from(x, y)
-        self._log(f"  Final ALL pending_junctions: {dict(self.pending_junctions)}")
+        # self._log(f"  Final ALL pending_junctions: {dict(self.pending_junctions)}")
         return True
     
     def open_door(self, x: int, y: int) -> bool:

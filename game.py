@@ -311,12 +311,6 @@ class GameState:
         
         self.combat_log.append(f"Door opened at ({x}, {y})")
         
-        # Add dungeon debug messages to combat log
-        if self.dungeon_debug_log:
-            for msg in self.dungeon_debug_log:
-                self.combat_log.append(f"  [D] {msg}")
-            self.dungeon_debug_log.clear()
-        
         # Check if room has monsters placed by dungeon generation
         self.combat_log.append(f"  Dungeon monsters: {self.dungeon.monsters}")
         if self.dungeon.monsters:
