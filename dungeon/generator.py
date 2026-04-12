@@ -236,18 +236,25 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     """Generate a room beyond a door."""
     # Roll room type
     roll = random.randint(1, 12)
+    # Room sizes are interior dimensions (floor tiles only)
+    # Normal: 5x5 interior (7x7 with walls)
+    # Large: 5x11 interior (7x13 with walls)
     if roll <= 6:
         room_type = "normal"
-        width, height = random.choice([5, 7]), random.choice([5, 7])
+        int_width, int_height = 5, 5
     elif roll <= 8:
         room_type = "hazard"
-        width, height = random.choice([5, 7]), random.choice([5, 7])
+        int_width, int_height = 5, 5
     elif roll <= 10:
         room_type = "lair"
-        width, height = random.choice([7, 9]), random.choice([7, 9])
+        int_width, int_height = 5, 11
     else:
         room_type = "quest"
-        width, height = random.choice([9, 11]), random.choice([9, 11])
+        int_width, int_height = 5, 11
+    
+    # Total size includes 1-tile wall border
+    width = int_width + 2
+    height = int_height + 2
     
     dungeon._log(f"  Room generation roll: {roll} -> {room_type} ({width}x{height})")
     
