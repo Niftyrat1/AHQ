@@ -83,7 +83,7 @@ class DungeonViewTk:
         self.canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         self.canvas = tk.Canvas(self.canvas_frame, bg="#111", highlightthickness=0)
-        print(f"[DEBUG] Canvas created, highlightthickness=0")
+        # print(f"[DEBUG] Canvas created, highlightthickness=0")
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
         self.canvas.bind("<Button-1>", self._on_canvas_click)
@@ -127,8 +127,8 @@ class DungeonViewTk:
         self.root.after(100, self._initial_render)
     
     def _initial_render(self):
-        print(f"[DEBUG] Canvas winfo: x={self.canvas.winfo_x()}, y={self.canvas.winfo_y()}, w={self.canvas.winfo_width()}, h={self.canvas.winfo_height()}")
-        print(f"[DEBUG] party_text winfo: x={self.party_text.winfo_x()}, y={self.party_text.winfo_y()}, w={self.party_text.winfo_width()}, h={self.party_text.winfo_height()}")
+        # print(f"[DEBUG] Canvas winfo: x={self.canvas.winfo_x()}, y={self.canvas.winfo_y()}, w={self.canvas.winfo_width()}, h={self.canvas.winfo_height()}")
+        # print(f"[DEBUG] party_text winfo: x={self.party_text.winfo_x()}, y={self.party_text.winfo_y()}, w={self.party_text.winfo_width()}, h={self.party_text.winfo_height()}")
         self._center_camera()
         self._update_display()
 
