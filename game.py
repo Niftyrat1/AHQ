@@ -132,7 +132,7 @@ class GameState:
             self.dungeon.wandering_monsters.remove((x, y))  # Remove so it only triggers once
             self.combat_log.append("Wandering monsters appear!")
             monster_ids = roll_lair_encounter()
-            self._start_combat(monster_ids)
+            self._start_combat_random(monster_ids)
     
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""
@@ -214,8 +214,8 @@ class GameState:
                 hero.current_wounds = 1
                 hero.is_ko = False
     
-    def _start_combat(self, monster_ids: List[str]):
-        """Start combat with spawned monsters."""
+    def _start_combat_with_positions(self, monster_data: List[Tuple[Tuple[int, int], str]]):
+        """Start combat with monsters at their dungeon positions."""
         self.current_phase = "COMBAT"
         self.mode = "COMBAT"
         
@@ -223,7 +223,24 @@ class GameState:
         self.hero_movement_remaining = {h.id: h.speed for h in self.party}
         self.hero_has_attacked.clear()
         
-        # Create monsters
+        # Create monsters at their dungeon positions
+        for (x, y), monster_id in monster_data:
+            monster = self.monster_library.create_monster(monster_id)
+            if monster:
+                monster.x, monster.y = x, y
+                self.monsters.append(monster)
+                self.combat_log.append(f"  Spawned {monster_id} at ({x}, {y})")
+    
+    def _start_combat_random(self, monster_ids: List[str]):
+        """Start combat with monsters at random positions (for wandering monsters)."""
+        self.current_phase = "COMBAT"
+        self.mode = "COMBAT"
+        
+        # Reset hero actions for new combat round
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
+        
+        # Create monsters at random spawn positions
         spawn_positions = self._get_spawn_positions(len(monster_ids))
         
         for i, monster_id in enumerate(monster_ids):
@@ -231,6 +248,7 @@ class GameState:
             if monster and i < len(spawn_positions):
                 monster.x, monster.y = spawn_positions[i]
                 self.monsters.append(monster)
+                self.combat_log.append(f"  Spawned {monster_id} at ({monster.x}, {monster.y})")
         
         # Surprise roll
         has_elf = any(h.race == "Elf" for h in self.party)
@@ -317,17 +335,17 @@ class GameState:
         # Check if room has monsters placed by dungeon generation
         self.combat_log.append(f"  After open_door: dungeon.monsters = {dict(self.dungeon.monsters)}")
         if self.dungeon.monsters:
-            monster_ids = list(self.dungeon.monsters.values())
-            self.combat_log.append(f"  Found monster_ids: {monster_ids}")
+            monster_data = list(self.dungeon.monsters.items())  # [(pos, id), ...]
+            self.combat_log.append(f"  Found monsters: {monster_data}")
             self.dungeon.monsters.clear()  # Clear from dungeon, will spawn in game
-            if monster_ids:
-                self._start_combat(monster_ids)
+            if monster_data:
+                self._start_combat_with_positions(monster_data)
         
         # Check for wandering monsters on door open
         elif random.randint(1, 12) <= 2:
             self.combat_log.append("Wandering monsters appear!")
             monster_ids = roll_lair_encounter()
-            self._start_combat(monster_ids)
+            self._start_combat_random(monster_ids)
         
         self.save_game()
         return True
