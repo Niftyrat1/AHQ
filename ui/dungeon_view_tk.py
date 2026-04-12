@@ -258,7 +258,7 @@ class DungeonViewTk:
             for path_tile in path_tiles[:-1] if path_tiles else []:
                 path_tile_type = self.dungeon.get_tile(path_tile[0], path_tile[1])
                 if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
-                    print(f"[MOVE] Blocked at {path_tile} by {path_tile_type.name}")
+                    # print(f"[MOVE] Blocked at {path_tile} by {path_tile_type.name}")
                     path_clear = False
                     break
         
@@ -487,7 +487,7 @@ class DungeonViewTk:
     
     def _show_movement_range(self, hero):
         """Highlight tiles the hero can move to."""
-        print(f"[DEBUG] _show_movement_range called for {hero.name} at ({hero.x},{hero.y})")
+        # print(f"[DEBUG] _show_movement_range called for {hero.name} at ({hero.x},{hero.y})")
         self._clear_movement_range()
         self.movement_highlights = []
         
@@ -517,18 +517,10 @@ class DungeonViewTk:
                 count_checked += 1
                 
                 # Check if walkable, visible (explored), and not occupied
-                is_north = ty < hero.y and tx == hero.x
                 if not self.dungeon.is_walkable(tx, ty):
-                    if abs(tx - hero.x) + abs(ty - hero.y) <= 2 or is_north:  # Log nearby non-walkable or north
-                        print(f"[MOVE] Skip ({tx},{ty}): not walkable, tile={self.dungeon.get_tile(tx, ty).name}")
                     continue
                 if (tx, ty) not in self.dungeon.explored:
-                    if abs(tx - hero.x) + abs(ty - hero.y) <= 5 or is_north:  # Log nearby unexplored or north
-                        print(f"[MOVE] Skip ({tx},{ty}): not explored")
                     continue
-                if is_north:
-                    print(f"[MOVE] Accept ({tx},{ty}): north tile accepted")
-                
                 # Check path is clear - natural movement (any x/y combination)
                 path_clear = True
                 dist = abs(dx) + abs(dy)
@@ -566,8 +558,6 @@ class DungeonViewTk:
                             break
                     
                     path_clear = path1_clear or path2_clear
-                    if not path_clear and abs(tx - hero.x) + abs(ty - hero.y) <= 3:
-                        print(f"[MOVE] Both paths blocked to ({tx},{ty})")
                 
                 if not path_clear:
                     continue
@@ -610,7 +600,7 @@ class DungeonViewTk:
                     self.canvas.tag_raise(circle)  # Ensure circle is on top
                     self.movement_highlights.append(circle)
                     count_drawn += 1
-        print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
+        # print(f"[DEBUG] Tiles: checked={count_checked}, walkable={count_walkable}, onscreen={count_onscreen}, drawn={count_drawn}")
     
     def _clear_movement_range(self):
         """Clear movement range highlights."""
