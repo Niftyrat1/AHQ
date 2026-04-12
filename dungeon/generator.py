@@ -75,7 +75,8 @@ def generate_passage_from(
             
             # Check for features (doors) - Passage Features Table (2D12)
             # Only roll once per section (at tile 2 of 4), not every tile
-            if features_enabled and tile_idx == 1:  # Middle of section
+            # Skip features in the final section (passage end section) - no doors near junctions
+            if features_enabled and tile_idx == 1 and section_idx < sections - 1:  # Middle of section, not last section
                 feature_roll = random.randint(1, 12) + random.randint(1, 12)
                 dungeon._log(f"    Passage feature roll: {feature_roll}")
                 if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
