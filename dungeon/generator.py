@@ -93,6 +93,7 @@ def generate_passage_from(
                         if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                             dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                             dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
+                            dungeon.explored.add((door_x, door_y))
                             dungeon._log(f"    Placed 1 door at ({door_x}, {door_y})")
                     else:
                         dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
@@ -107,6 +108,7 @@ def generate_passage_from(
                             if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                                 dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                                 dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
+                                dungeon.explored.add((door_x, door_y))
                                 dungeon._log(f"    Placed door at ({door_x}, {door_y})")
                         else:
                             dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
@@ -375,6 +377,7 @@ def _add_doors_to_room(dungeon: "Dungeon", cx: int, cy: int, half_w: int, half_h
         if dungeon.get_tile(x, y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(x, y)] = dungeon.TileType.DOOR_CLOSED
             dungeon.doors[(x, y)] = {"is_open": False, "from_room": True}
+            dungeon.explored.add((x, y))
             doors_placed += 1
 
 
