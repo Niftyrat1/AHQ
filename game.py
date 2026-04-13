@@ -259,9 +259,21 @@ class GameState:
         self.hero_movement_remaining = {h.id: h.speed for h in self.party}
         self.hero_has_attacked.clear()
         
-        # Extract monster IDs and valid tiles from room
+        # Extract monster IDs
         monster_ids = [mid for _, mid in monster_data]
-        room_tiles = [(x, y) for (x, y), _ in monster_data]
+        
+        # Find the room containing these monsters - use ALL room tiles for placement
+        first_monster_pos = monster_data[0][0] if monster_data else None
+        room_tiles = []
+        if first_monster_pos:
+            for room in self.dungeon.rooms:
+                if first_monster_pos in room:
+                    room_tiles = list(room)
+                    break
+        
+        # Fallback: use monster positions if room not found
+        if not room_tiles:
+            room_tiles = [(x, y) for (x, y), _ in monster_data]
         
         # Filter to only walkable tiles (not on walls/entrances)
         valid_tiles = [(x, y) for (x, y) in room_tiles if self.dungeon.is_walkable(x, y)]
