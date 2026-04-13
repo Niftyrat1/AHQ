@@ -210,11 +210,23 @@ class Dungeon:
                     del self.grid[(wall_x, wall_y)]
         
         exits = self.pending_junctions.pop(pos)
-        
+
+        all_passage_tiles = []
         for direction in exits:
             self._log(f"  Exploring direction {direction}")
-            generate_passage_from(self, x, y, direction)
-        
+            passage_tiles = generate_passage_from(self, x, y, direction)
+            all_passage_tiles.extend(passage_tiles)
+
+        # Explicitly explore all generated passage tiles and their adjacent walls
+        for (tx, ty) in all_passage_tiles:
+            self.explored.add((tx, ty))
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    adj_pos = (tx + dx, ty + dy)
+                    adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
+                    if adj_tile != TileType.UNEXPLORED and adj_pos not in self.explored:
+                        self.explored.add(adj_pos)
+
         self._explore_from(x, y)
         return True
     
