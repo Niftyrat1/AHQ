@@ -130,14 +130,14 @@ class Dungeon:
                 
                 self.explored.add(pos)
                 
-                if tile == TileType.FLOOR:
+                if tile in (TileType.FLOOR, TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
                     for side_dx, side_dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         adj_pos = (curr_x + side_dx, curr_y + side_dy)
                         adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
-                        if adj_tile == TileType.WALL:
+                        if adj_tile in (TileType.WALL, TileType.PASSAGE_END):
                             self.explored.add(adj_pos)
                 
-                if tile == TileType.WALL:
+                if tile in (TileType.WALL, TileType.PASSAGE_END):
                     break
     
     def check_and_generate_junction(self, x: int, y: int) -> bool:
