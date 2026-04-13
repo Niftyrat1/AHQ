@@ -29,7 +29,6 @@ class DungeonViewTk:
         self.on_open_door = on_open_door
         self.on_get_monsters = None
         self.on_get_game_state = on_get_game_state
-        self.on_open_door = None
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -482,6 +481,11 @@ class DungeonViewTk:
             self.party_text.insert(tk.END, line)
         
         self.party_text.config(state=tk.DISABLED)
+    
+    def _sync_from_game(self):
+        """Sync monsters from game state."""
+        if self.on_get_monsters:
+            self.monsters = self.on_get_monsters()
     
     def update_state(self):
         """Update display from game state."""

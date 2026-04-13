@@ -114,7 +114,7 @@ def place_monsters_whq_rules(
         # Place ranged monsters preferring positions with LOS to heroes
         def has_los_to_hero(pos):
             for hx, hy in hero_positions:
-                if dungeon.check_line_of_sight(pos[0], pos[1], hx, hy):
+                if dungeon._has_los(pos[0], pos[1], hx, hy):
                     return True
             return False
 

@@ -114,43 +114,43 @@ def generate_passage_from(
                                 dungeon._log(f"    Placed door at ({door_x}, {door_y})")
                         else:
                             dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
-        
-        # Roll passage end
-        end_roll = random.randint(1, 12) + random.randint(1, 12)
-        end_x, end_y = current_x + direction[0], current_y + direction[1]
-        _resolve_passage_end(dungeon, end_x, end_y, direction, end_roll)
-        
-        # Cap the end of the passage with walls perpendicular to travel
-        end_tile = dungeon.get_tile(end_x, end_y)
-        is_dead_end_or_stairs = end_tile in (dungeon.TileType.PASSAGE_END, dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
-        is_pending_junction = (end_x, end_y) in dungeon.pending_junctions
-        
-        for side in _get_both_perpendicular(direction):
-            wall_x = end_x + side[0]
-            wall_y = end_y + side[1]
-            if is_dead_end_or_stairs:
-                if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                    dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-                    dungeon.explored.add((wall_x, wall_y))
-                    dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
-            elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
-                dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-                dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
-        
-        # If the end is a dead end or stairs, cap it with a wall in the forward direction
+    
+    # After all sections are placed, roll passage end
+    end_roll = random.randint(1, 12) + random.randint(1, 12)
+    end_x, end_y = current_x + direction[0], current_y + direction[1]
+    _resolve_passage_end(dungeon, end_x, end_y, direction, end_roll)
+    
+    # Cap the end of the passage with walls perpendicular to travel
+    end_tile = dungeon.get_tile(end_x, end_y)
+    is_dead_end_or_stairs = end_tile in (dungeon.TileType.PASSAGE_END, dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
+    is_pending_junction = (end_x, end_y) in dungeon.pending_junctions
+    
+    for side in _get_both_perpendicular(direction):
+        wall_x = end_x + side[0]
+        wall_y = end_y + side[1]
         if is_dead_end_or_stairs:
-            beyond_x = end_x + direction[0]
-            beyond_y = end_y + direction[1]
-            beyond_tile = dungeon.get_tile(beyond_x, beyond_y)
-            dungeon._log(f"    Wall cap check at ({beyond_x}, {beyond_y}): {beyond_tile.name}")
-            if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
-                dungeon.explored.add((beyond_x, beyond_y))
-                dungeon._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
-            else:
-                dungeon._log(f"    SKIPPED wall cap at ({beyond_x}, {beyond_y}) - tile is {beyond_tile.name}")
-        
-        return passage_tiles
+            if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+                dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
+                dungeon.explored.add((wall_x, wall_y))
+                dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
+        elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
+            dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
+            dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
+    
+    # If the end is a dead end or stairs, cap it with a wall in the forward direction
+    if is_dead_end_or_stairs:
+        beyond_x = end_x + direction[0]
+        beyond_y = end_y + direction[1]
+        beyond_tile = dungeon.get_tile(beyond_x, beyond_y)
+        dungeon._log(f"    Wall cap check at ({beyond_x}, {beyond_y}): {beyond_tile.name}")
+        if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+            dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((beyond_x, beyond_y))
+            dungeon._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
+        else:
+            dungeon._log(f"    SKIPPED wall cap at ({beyond_x}, {beyond_y}) - tile is {beyond_tile.name}")
+    
+    return passage_tiles
 
 
 def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[int, int], roll: int):

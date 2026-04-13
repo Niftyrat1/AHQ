@@ -168,7 +168,7 @@ def move_monster_away_from_heroes(
         # Check LOS to any hero
         has_los = False
         for hero in heroes:
-            if dungeon.check_line_of_sight(nx, ny, hero.x, hero.y):
+            if dungeon._has_los(nx, ny, hero.x, hero.y):
                 has_los = True
                 break
         
@@ -242,7 +242,7 @@ def run_gm_phase(
             if target:
                 dist = dungeon.get_distance(monster.x, monster.y, target.x, target.y)
                 if dist <= monster.ranged.get("range", 12):
-                    if dungeon.check_line_of_sight(monster.x, monster.y, target.x, target.y):
+                    if dungeon._has_los(monster.x, monster.y, target.x, target.y):
                         log.append(f"  {monster.name} ranged attack on {target.name}")
                         # For Phase 1, treat as melee with penalty
                         resolve_monster_attack(monster, target, log)
