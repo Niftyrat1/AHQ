@@ -80,6 +80,13 @@ class DungeonViewTk:
                                    command=self._on_return_to_tavern, bg="#666", fg="white")
         self.return_btn.pack(fill=tk.X, pady=5)
         
+        # Monsters section
+        tk.Label(self.left_frame, text="Monsters", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#f44").pack(anchor=tk.W, pady=(10, 0))
+        
+        self.monsters_text = tk.Text(self.left_frame, width=25, height=10, font=("Courier", 9),
+                                     bg="#222", fg="#f88", insertwidth=0, takefocus=0)
+        self.monsters_text.pack(fill=tk.X, expand=False)
+        
         # Center - Canvas for dungeon
         self.canvas_frame = tk.Frame(self.main_frame, bg="black", highlightthickness=0)
         self.canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -444,6 +451,9 @@ class DungeonViewTk:
         
         # Update party panel
         self._update_party_panel()
+        
+        # Update monsters panel
+        self._update_monsters_panel()
     
     def _update_party_panel(self):
         """Update party status panel."""
@@ -480,6 +490,25 @@ class DungeonViewTk:
             self.party_text.insert(tk.END, line)
         
         self.party_text.config(state=tk.DISABLED)
+    
+    def _update_monsters_panel(self):
+        """Update monsters status panel."""
+        self.monsters_text.config(state=tk.NORMAL)
+        self.monsters_text.delete(1.0, tk.END)
+        
+        for monster in self.monsters:
+            if monster.is_dead:
+                continue  # Don't show dead monsters
+            
+            status = "DEAD" if monster.current_wounds <= 0 else f"{monster.current_wounds}/{monster.max_wounds}"
+            ws_str = f"WS{monster.ws}"
+            
+            line = f"{monster.name[:15]:15} {status:8}\n"
+            line += f"  @({monster.x:2},{monster.y:2}) {ws_str}\n\n"
+            
+            self.monsters_text.insert(tk.END, line)
+        
+        self.monsters_text.config(state=tk.DISABLED)
     
     def _sync_from_game(self):
         """Sync monsters from game state."""

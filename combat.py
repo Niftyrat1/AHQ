@@ -64,35 +64,35 @@ def resolve_melee_attack(
     is_critical = hit_roll >= critical_threshold
     is_fumble = hit_roll <= fumble_threshold
     
-    messages.append(f"{attacker.name} attacks {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
+    # Log attack immediately
+    if log is not None:
+        log.append(f"{attacker.name} attacks {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
     
     if is_fumble:
-        messages.append(f"  FUMBLE! {defender.name} gets a free attack!")
         if log is not None:
-            log.extend(messages)
+            log.append(f"  FUMBLE! {defender.name} gets a free attack!")
         return False, 0, "fumble"
     
     if hit_roll < hit_needed and not is_critical:
-        messages.append(f"  Miss!")
         if log is not None:
-            log.extend(messages)
+            log.append(f"  Miss!")
         return False, 0, "miss"
     
     # Hit! Roll for damage
-    messages.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
+    if log is not None:
+        log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
     damage_dice = attacker.get_damage_dice()
     damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
-    messages.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
+    if log is not None:
+        log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
     
     # Apply damage
     died = defender.take_damage(damage)
     if died:
-        messages.append(f"  {defender.name} is killed! (+{defender.pv} PV)")
-    
-    if log is not None:
-        log.extend(messages)
+        if log is not None:
+            log.append(f"  {defender.name} is killed! (+{defender.pv} PV)")
     
     return True, damage, "critical" if is_critical else "hit"
 
@@ -108,8 +108,6 @@ def resolve_monster_attack(
     Returns:
         (hit: bool, damage: int, hero_died_or_ko: bool)
     """
-    messages = []
-    
     # Get hit roll needed
     hit_needed = get_hit_roll_needed(attacker.ws, defender.ws)
     
@@ -121,46 +119,48 @@ def resolve_monster_attack(
     is_critical = hit_roll >= critical_threshold
     is_fumble = hit_roll <= fumble_threshold
     
-    messages.append(f"{attacker.name} attacks {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
+    # Log attack immediately
+    if log is not None:
+        log.append(f"{attacker.name} attacks {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
     
     if is_fumble:
-        messages.append(f"  FUMBLE! {defender.name} gets a free attack!")
         if log is not None:
-            log.extend(messages)
+            log.append(f"  FUMBLE! {defender.name} gets a free attack!")
         return False, 0, False
     
     if hit_roll < hit_needed and not is_critical:
-        messages.append(f"  Miss!")
         if log is not None:
-            log.extend(messages)
+            log.append(f"  Miss!")
         return False, 0, False
     
     # Hit!
-    messages.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
+    if log is not None:
+        log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
     # Roll damage
     damage_dice = attacker.get_damage_dice()
     damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
-    messages.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
+    if log is not None:
+        log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
     
     # Check for fate point usage
     hero_ko = False
     if defender.current_wounds - damage <= 0 and defender.current_fate > 0:
         # Auto-spend fate point
-        messages.append(f"  {defender.name} spends a Fate Point to survive!")
+        if log is not None:
+            log.append(f"  {defender.name} spends a Fate Point to survive!")
         defender.spend_fate()
         hero_ko = False  # Fate point keeps them at 1 wound
     else:
         hero_ko = defender.take_damage(damage)
         if hero_ko:
             if defender.is_dead:
-                messages.append(f"  {defender.name} has DIED!")
+                if log is not None:
+                    log.append(f"  {defender.name} has DIED!")
             else:
-                messages.append(f"  {defender.name} is knocked out!")
-    
-    if log is not None:
-        log.extend(messages)
+                if log is not None:
+                    log.append(f"  {defender.name} is knocked out!")
     
     return True, damage, hero_ko
 
