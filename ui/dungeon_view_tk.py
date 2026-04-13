@@ -193,7 +193,6 @@ class DungeonViewTk:
             if self.dungeon.is_adjacent(self.selected_hero.x, self.selected_hero.y, x, y):
                 if self.on_hero_attack:
                     self.on_hero_attack(self.selected_hero, monster)
-                    self.add_log_message(f"{self.selected_hero.name} attacks {monster.name}")
             else:
                 self._show_message("Not adjacent!")
             return
