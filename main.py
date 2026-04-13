@@ -70,9 +70,7 @@ def main():
     def on_hero_attack(hero, monster):
         if game.hero_attack(hero, monster):
             dungeon_view.monsters = game.monsters
-            dungeon_view.add_log_message(f"{hero.name} attacks {monster.name}")
-            if monster.is_dead:
-                dungeon_view.add_log_message(f"{monster.name} is killed! (+{monster.pv} PV)")
+            dungeon_view.update_state()
     
     def on_end_phase():
         dungeon_view.add_log_message("--- Ending Hero Phase ---")
