@@ -126,7 +126,7 @@ class Dungeon:
                     for side_dx, side_dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                         adj_pos = (curr_x + side_dx, curr_y + side_dy)
                         adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
-                        if adj_tile in (TileType.WALL, TileType.PASSAGE_END):
+                        if adj_tile in (TileType.WALL, TileType.PASSAGE_END, TileType.DOOR_CLOSED, TileType.DOOR_OPEN):
                             self.explored.add(adj_pos)
                 
                 if tile in (TileType.WALL, TileType.PASSAGE_END):
