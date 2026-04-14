@@ -68,7 +68,11 @@ def main():
         return False
     
     def on_hero_attack(hero, monster):
+        log_before = len(game.combat_log)
         if game.hero_attack(hero, monster):
+            # Add new combat log messages immediately
+            for msg in game.combat_log[log_before:]:
+                dungeon_view.add_log_message(msg)
             dungeon_view.monsters = game.monsters
             dungeon_view.update_state()
     
