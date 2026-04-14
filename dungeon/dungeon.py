@@ -79,7 +79,6 @@ class Dungeon:
         generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
         generate_passage_from(self, 8, 0, (0, 1), auto_explore=False, features_enabled=False)
         
-        self._log(f"  After setup: (9,0) is {self.get_tile(9, 0).name}")
     
     def get_tile(self, x: int, y: int) -> TileType:
         """Get tile at position."""
@@ -108,7 +107,6 @@ class Dungeon:
         # Check if hero is inside a room - reveal entire room
         for room in self.rooms:
             if (x, y) in room:
-                self._log(f"Hero in room at ({x},{y}), revealing {len(room)} tiles")
                 for room_tile in room:
                     self.explored.add(room_tile)
                 return
@@ -168,7 +166,6 @@ class Dungeon:
         else:
             junc_type = f"{len(exits)}-way junction"
         
-        self._log(f"check_and_generate_junction at {pos}: {junc_type} with exits {exits}")
         
         for direction in exits:
             wall_x = x + direction[0]
@@ -176,17 +173,13 @@ class Dungeon:
             tile = self.get_tile(wall_x, wall_y)
             if tile == TileType.WALL:
                 is_room_wall = self._is_room_wall(wall_x, wall_y)
-                if is_room_wall:
-                    self._log(f"  NOT clearing wall at ({wall_x}, {wall_y}) - it's a room wall")
-                else:
-                    self._log(f"  Clearing wall at ({wall_x}, {wall_y})")
+                if not is_room_wall:
                     del self.grid[(wall_x, wall_y)]
         
         exits = self.pending_junctions.pop(pos)
 
         all_passage_tiles = []
         for direction in exits:
-            self._log(f"  Exploring direction {direction}")
             passage_tiles = generate_passage_from(self, x, y, direction)
             all_passage_tiles.extend(passage_tiles)
 
@@ -277,7 +270,6 @@ class Dungeon:
         
         target_tile = self.get_tile(target_x, target_y)
         if target_tile in (TileType.FLOOR, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
-            self._log(f"Door at ({x},{y}) points toward existing floor at ({target_x},{target_y}), skipping generation")
             door_info = self.doors[(x, y)]
             door_info["is_open"] = True
             self.grid[(x, y)] = TileType.DOOR_OPEN
@@ -293,23 +285,16 @@ class Dungeon:
         
         from_room = door_info.get("from_room", True)
         
-        self._log(f"open_door: from_room={from_room}, direction={direction}, gen_pos=({gen_x},{gen_y})")
-        self._log(f"open_door: monsters BEFORE generation = {dict(self.monsters)}")
         
         if from_room:
             roll = random.randint(1, 12)
-            self._log(f"open_door: room generation roll = {roll} (<=6=passage, >6=room)")
             if roll <= 6:
                 generate_passage_from(self, x, y, direction)
                 self._explore_from(x, y)
             else:
-                self._log(f"open_door: generating ROOM at ({gen_x},{gen_y})")
                 _generate_room(self, gen_x, gen_y, direction, from_passage=False)
         else:
-            self._log(f"open_door: generating ROOM from passage door at ({gen_x},{gen_y})")
             _generate_room(self, gen_x, gen_y, direction, from_passage=False)
-        
-        self._log(f"open_door: monsters AFTER generation = {dict(self.monsters)}")
         
         return True
     

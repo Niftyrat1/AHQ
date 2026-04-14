@@ -30,7 +30,6 @@ def generate_passage_from(
     else:
         sections = 3
     
-    dungeon._log(f"Generating passage from ({x},{y}) direction {direction}: {sections} section(s) (roll {roll}), features={'on' if features_enabled else 'off'}")
     
     passage_tiles = []
     current_x, current_y = x, y
@@ -50,14 +49,11 @@ def generate_passage_from(
                 # to prevent passages from crossing through each other
                 for room in dungeon.rooms:
                     if (current_x, current_y) in room:
-                        dungeon._log(f"    Blocked at ({current_x}, {current_y}) - part of existing room, stopping")
                         return passage_tiles
                 # Existing passage floor - stop to prevent passage crossings
-                dungeon._log(f"    Blocked at ({current_x}, {current_y}) - existing passage, stopping")
                 return passage_tiles
             else:
                 # Blocked by wall, door, stairs, etc. - don't overwrite, just stop
-                dungeon._log(f"    Blocked at ({current_x}, {current_y}) by {tile.name}, stopping")
                 return passage_tiles
             
             dungeon.grid[(current_x, current_y)] = dungeon.TileType.FLOOR
@@ -80,25 +76,30 @@ def generate_passage_from(
             # Skip features in the final section (passage end section) - no doors near junctions
             if features_enabled and tile_idx == 1 and section_idx < sections - 1:  # Middle of section, not last section
                 feature_roll = random.randint(1, 12) + random.randint(1, 12)
-                dungeon._log(f"    Passage feature roll: {feature_roll}")
+                if feature_roll <= 4:
+                    feature_name = "Wandering monsters"
+                elif feature_roll <= 15:
+                    feature_name = "Nothing"
+                elif feature_roll <= 19:
+                    feature_name = "1 door"
+                elif feature_roll <= 21:
+                    feature_name = "2 doors"
+                else:
+                    feature_name = "Wandering monsters"
+                dungeon._log(f"    Passage feature roll: {feature_roll} ({feature_name})")
                 if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                     # Wandering monsters - mark this tile for encounter
                     dungeon.wandering_monsters.add((current_x, current_y))
-                    dungeon._log(f"    Wandering monsters will appear at ({current_x}, {current_y})")
                 elif 16 <= feature_roll <= 19:
                     # 1 door on side - check if position is suitable (not at junction)
                     side_dir = _get_perpendicular(direction)
                     door_x = current_x + side_dir[0]
                     door_y = current_y + side_dir[1]
                     if dungeon._is_valid_door_position(door_x, door_y, direction):
-                        dungeon._log(f"    Attempting door at ({door_x}, {door_y}), tile: {dungeon.get_tile(door_x, door_y).name}")
                         if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                             dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                             dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
                             dungeon.explored.add((door_x, door_y))
-                            dungeon._log(f"    Placed 1 door at ({door_x}, {door_y})")
-                    else:
-                        dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
                 elif 20 <= feature_roll <= 21:
                     # 2 doors on sides - check if positions are suitable
                     side_dirs = _get_both_perpendicular(direction)
@@ -106,14 +107,10 @@ def generate_passage_from(
                         door_x = current_x + side_dir[0]
                         door_y = current_y + side_dir[1]
                         if dungeon._is_valid_door_position(door_x, door_y, direction):
-                            dungeon._log(f"    Attempting door at ({door_x}, {door_y}), tile: {dungeon.get_tile(door_x, door_y).name}")
                             if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                                 dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                                 dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
                                 dungeon.explored.add((door_x, door_y))
-                                dungeon._log(f"    Placed door at ({door_x}, {door_y})")
-                        else:
-                            dungeon._log(f"    Skipped door at ({door_x}, {door_y}) - junction/corner position")
     
     # After all sections are placed, roll passage end
     end_roll = random.randint(1, 12) + random.randint(1, 12)
@@ -132,23 +129,17 @@ def generate_passage_from(
             if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                 dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
                 dungeon.explored.add((wall_x, wall_y))
-                dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
         elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-            dungeon._log(f"    Placed side wall at ({wall_x}, {wall_y})")
     
     # If the end is a dead end or stairs, cap it with a wall in the forward direction
     if is_dead_end_or_stairs:
         beyond_x = end_x + direction[0]
         beyond_y = end_y + direction[1]
         beyond_tile = dungeon.get_tile(beyond_x, beyond_y)
-        dungeon._log(f"    Wall cap check at ({beyond_x}, {beyond_y}): {beyond_tile.name}")
         if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
             dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
             dungeon.explored.add((beyond_x, beyond_y))
-            dungeon._log(f"    Placed wall cap at ({beyond_x}, {beyond_y})")
-        else:
-            dungeon._log(f"    SKIPPED wall cap at ({beyond_x}, {beyond_y}) - tile is {beyond_tile.name}")
     
     return passage_tiles
 
@@ -158,7 +149,6 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
     if not hasattr(dungeon, 'pending_junctions'):
         dungeon.pending_junctions = {}
     
-    dungeon._log(f"  Passage end at ({x},{y}): roll {roll}")
     
     if roll <= 3 or 12 <= roll <= 14 or roll >= 23:
         # T-junction (2-3, 12-14, 23-24): side exits only, wall blocks forward
@@ -174,11 +164,9 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
             dungeon.explored.add((side_x, side_y))
         perp_dirs = _get_both_perpendicular(direction)
         dungeon.pending_junctions[(x, y)] = list(perp_dirs)
-        dungeon._log(f"    Generated T_JUNCTION at ({x}, {y}), side exits: {list(perp_dirs)}")
     elif 4 <= roll <= 8:
         # Dead end (4-8)
         dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
-        dungeon._log(f"    Generated PASSAGE_END (dead end) at ({x}, {y})")
     elif 9 <= roll <= 11:
         # Right turn (9-11)
         dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
@@ -191,11 +179,9 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         else:
             right_dir = (1, 0)
         dungeon.pending_junctions[(x, y)] = [right_dir]
-        dungeon._log(f"    Generated RIGHT_TURN at ({x}, {y}), continues {right_dir}")
         right_x, right_y = x + right_dir[0], y + right_dir[1]
         if dungeon.get_tile(right_x, right_y) == dungeon.TileType.WALL:
             del dungeon.grid[(right_x, right_y)]
-            dungeon._log(f"    Cleared right exit wall at ({right_x}, {right_y})")
         forward_x, forward_y = x + direction[0], y + direction[1]
         left_dir = (-right_dir[0], -right_dir[1])
         left_x, left_y = x + left_dir[0], y + left_dir[1]
@@ -217,11 +203,9 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         else:
             left_dir = (-1, 0)
         dungeon.pending_junctions[(x, y)] = [left_dir]
-        dungeon._log(f"    Generated LEFT_TURN at ({x}, {y}), continues {left_dir}")
         left_x, left_y = x + left_dir[0], y + left_dir[1]
         if dungeon.get_tile(left_x, left_y) == dungeon.TileType.WALL:
             del dungeon.grid[(left_x, left_y)]
-            dungeon._log(f"    Cleared left exit wall at ({left_x}, {left_y})")
         forward_x, forward_y = x + direction[0], y + direction[1]
         right_dir = (-left_dir[0], -left_dir[1])
         right_x, right_y = x + right_dir[0], y + right_dir[1]
@@ -234,11 +218,9 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
     elif 18 <= roll <= 19:
         # Stairs down
         dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
-        dungeon._log(f"    Generated STAIRS_DOWN at ({x}, {y})")
     elif 20 <= roll <= 22:
         # Stairs out
         dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
-        dungeon._log(f"    Generated STAIRS_OUT at ({x}, {y})")
 
 
 def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
@@ -266,7 +248,6 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     width = int_width + 2
     height = int_height + 2
     
-    dungeon._log(f"  Room generation roll: {roll} -> {room_type} ({width}x{height})")
     
     room_tiles = []
     room_walls = []
@@ -297,7 +278,6 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     
     # If too much overlap, try sliding the room along the wall
     if overlap_count > 2:
-        dungeon._log(f"Room at ({center_x},{center_y}) overlaps ({overlap_count}), trying to slide along wall")
         best_center = (center_x, center_y)
         best_overlap = overlap_count
         best_half_w, best_half_h = half_w, half_h
@@ -314,14 +294,12 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
                 try_y = center_y + offset
             
             try_overlap = _count_overlap(try_x, try_y, half_w, half_h)
-            dungeon._log(f"  Trying offset {offset}: center ({try_x},{try_y}), overlap {try_overlap}")
             if try_overlap < best_overlap:
                 best_overlap = try_overlap
                 best_center = (try_x, try_y)
         
         # If sliding didn't work, try rotating 90 degrees
         if best_overlap > 2 and width != height:  # Only rotate if not square
-            dungeon._log(f"  Trying 90-degree rotation ({width}x{height} -> {height}x{width})")
             rot_half_w, rot_half_h = half_h, half_w  # Swap dimensions
             
             # Recalculate center for rotated room
@@ -350,29 +328,23 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
                         try_y = rot_y + offset
                     
                     try_overlap = _count_overlap(try_x, try_y, rot_half_w, rot_half_h)
-                    dungeon._log(f"    Rotated offset {offset}: center ({try_x},{try_y}), overlap {try_overlap}")
                     if try_overlap < rot_overlap:
                         rot_overlap = try_overlap
                         rot_x, rot_y = try_x, try_y
             
             if rot_overlap <= 2:
-                dungeon._log(f"  Using rotated room at ({rot_x},{rot_y}) with overlap {rot_overlap}")
                 center_x, center_y = rot_x, rot_y
                 half_w, half_h = rot_half_w, rot_half_h
                 width, height = height, width  # Swap for rest of generation
                 rotated = True
             elif best_overlap <= 2:
                 center_x, center_y = best_center
-                dungeon._log(f"  Using slid position ({center_x},{center_y}) with overlap {best_overlap}")
             else:
-                dungeon._log(f"  Best overlap still too high (slid={best_overlap}, rotated={rot_overlap}), creating passage instead")
                 generate_passage_from(dungeon, door_x - entrance_dir[0], door_y - entrance_dir[1], entrance_dir)
                 return
         elif best_overlap <= 2:
             center_x, center_y = best_center
-            dungeon._log(f"  Using slid position ({center_x},{center_y}) with overlap {best_overlap}")
         else:
-            dungeon._log(f"  Best overlap still too high ({best_overlap}), creating passage instead")
             generate_passage_from(dungeon, door_x - entrance_dir[0], door_y - entrance_dir[1], entrance_dir)
             return
     
@@ -400,8 +372,6 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
         for y in range(center_y - half_h, center_y + half_h + 1):
             existing_tile = dungeon.get_tile(x, y)
             if existing_tile != dungeon.TileType.UNEXPLORED:
-                if existing_tile == dungeon.TileType.FLOOR:
-                    dungeon._log(f"    Room generation skipped floor at ({x},{y}) - existing passage/room")
                 continue
             
             if abs(x - center_x) == half_w or abs(y - center_y) == half_h:
