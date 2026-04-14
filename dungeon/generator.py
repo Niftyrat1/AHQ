@@ -72,8 +72,8 @@ def generate_passage_from(
                         dungeon.explored.add((wall_x, wall_y))
             
             # Check for features (doors) - Passage Features Table (2D12)
-            # Only roll once per section (at tile 2 of 4), not every tile
-            if features_enabled and tile_idx == 1:  # Middle of section
+            # Only roll once per passage (first section, middle tile)
+            if features_enabled and section_idx == 0 and tile_idx == 1:
                 feature_roll = random.randint(1, 12) + random.randint(1, 12)
                 if feature_roll <= 4:
                     feature_name = "Wandering monsters"
