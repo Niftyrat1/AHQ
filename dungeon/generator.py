@@ -166,10 +166,12 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         wall_x = x + direction[0]
         wall_y = y + direction[1]
         dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
+        dungeon.explored.add((wall_x, wall_y))
         for side in _get_both_perpendicular(direction):
             side_x = wall_x + side[0]
             side_y = wall_y + side[1]
             dungeon.grid[(side_x, side_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((side_x, side_y))
         perp_dirs = _get_both_perpendicular(direction)
         dungeon.pending_junctions[(x, y)] = list(perp_dirs)
         dungeon._log(f"    Generated T_JUNCTION at ({x}, {y}), side exits: {list(perp_dirs)}")
@@ -199,8 +201,10 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         left_x, left_y = x + left_dir[0], y + left_dir[1]
         if dungeon.get_tile(forward_x, forward_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(forward_x, forward_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((forward_x, forward_y))
         if dungeon.get_tile(left_x, left_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(left_x, left_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((left_x, left_y))
     elif 15 <= roll <= 17:
         # Left turn (15-17)
         dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
@@ -223,8 +227,10 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         right_x, right_y = x + right_dir[0], y + right_dir[1]
         if dungeon.get_tile(forward_x, forward_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(forward_x, forward_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((forward_x, forward_y))
         if dungeon.get_tile(right_x, right_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(right_x, right_y)] = dungeon.TileType.WALL
+            dungeon.explored.add((right_x, right_y))
     elif 18 <= roll <= 19:
         # Stairs down
         dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
