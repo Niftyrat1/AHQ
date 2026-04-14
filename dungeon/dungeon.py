@@ -66,12 +66,18 @@ class Dungeon:
             # Outer walls (north at y=-1, south at y=2)
             self.grid[(i, -1)] = TileType.WALL
             self.grid[(i, 2)] = TileType.WALL
+            self.explored.add((i, -1))
+            self.explored.add((i, 2))
         
         # North and South walls at stairs area
         self.grid[(0, -1)] = TileType.WALL
         self.grid[(1, -1)] = TileType.WALL
         self.grid[(0, 2)] = TileType.WALL
         self.grid[(1, 2)] = TileType.WALL
+        self.explored.add((0, -1))
+        self.explored.add((1, -1))
+        self.explored.add((0, 2))
+        self.explored.add((1, 2))
         
         # 2x2 T-junction at (9,0)-(10,1) - this is the junction floor
         self.grid[(9, 0)] = TileType.FLOOR
@@ -88,6 +94,11 @@ class Dungeon:
         self.grid[(13, 0)] = TileType.WALL
         self.grid[(13, 1)] = TileType.WALL
         self.grid[(13, 2)] = TileType.WALL
+        # Also explore these walls so they're visible
+        self.explored.add((13, -1))
+        self.explored.add((13, 0))
+        self.explored.add((13, 1))
+        self.explored.add((13, 2))
         
         # Set up pending junction for North and South passages
         # The reference point is (9,0) - hero triggers when stepping on any of the 2x2 tiles
