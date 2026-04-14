@@ -133,138 +133,108 @@ def generate_passage_from(
     end_x, end_y = current_x + direction[0], current_y + direction[1]
     _resolve_passage_end(dungeon, end_x, end_y, direction, end_roll)
     
-    # Cap the end of the passage with walls perpendicular to travel (for 2-wide passage)
-    end_tile = dungeon.get_tile(end_x, end_y)
+    # After _resolve_passage_end, we may need to cap walls for dead ends and stairs
+    # The end tiles are at left_pos and right_pos (one step beyond last passage tiles)
+    left_pos = (end_x + left_offset[0], end_y + left_offset[1])
+    right_pos = (end_x + right_offset[0], end_y + right_offset[1])
+    
+    end_tile = dungeon.get_tile(left_pos[0], left_pos[1])
     is_dead_end_or_stairs = end_tile in (dungeon.TileType.PASSAGE_END, dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
-    is_pending_junction = (end_x, end_y) in dungeon.pending_junctions
     
-    # For 2-wide passage, calculate left and right end tiles
-    end_left_x = end_x + left_offset[0]
-    end_left_y = end_y + left_offset[1]
-    end_right_x = end_x + right_offset[0]
-    end_right_y = end_y + right_offset[1]
-    
-    # Place side walls at the end
-    outer_end_left_x = end_left_x + left_offset[0]
-    outer_end_left_y = end_left_y + left_offset[1]
-    outer_end_right_x = end_right_x + right_offset[0]
-    outer_end_right_y = end_right_y + right_offset[1]
-    
-    for wall_x, wall_y in [(outer_end_left_x, outer_end_left_y), (outer_end_right_x, outer_end_right_y)]:
-        if is_dead_end_or_stairs:
-            if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-        elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
-            dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-    
-    # If the end is a dead end or stairs, cap it with a wall in the forward direction
+    # If dead end or stairs, cap with forward walls
     if is_dead_end_or_stairs:
-        # Cap both left and right tiles
-        for end_pos in [(end_left_x, end_left_y), (end_right_x, end_right_y)]:
-            beyond_x = end_pos[0] + direction[0]
-            beyond_y = end_pos[1] + direction[1]
-            beyond_tile = dungeon.get_tile(beyond_x, beyond_y)
-            if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
-                dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
+        beyond_left = (left_pos[0] + direction[0], left_pos[1] + direction[1])
+        beyond_right = (right_pos[0] + direction[0], right_pos[1] + direction[1])
+        for wall_pos in [beyond_left, beyond_right]:
+            if dungeon.get_tile(wall_pos[0], wall_pos[1]) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+                dungeon.grid[wall_pos] = dungeon.TileType.WALL
     
     return passage_tiles
 
 
 def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[int, int], roll: int):
-    """Resolve what happens at passage end (2D12)."""
+    """Resolve what happens at passage end (2D12). x,y is the center position, we place 2-wide tiles."""
     if not hasattr(dungeon, 'pending_junctions'):
         dungeon.pending_junctions = {}
     
+    # Calculate left/right offsets based on direction
+    if direction in [(0, -1), (0, 1)]:  # Vertical passage (North/South)
+        left_offset, right_offset = (-1, 0), (1, 0)
+    else:  # Horizontal passage (East/West)
+        left_offset, right_offset = (0, -1), (0, 1)
+    
+    # Calculate the actual 2-wide tile positions at this center point
+    left_pos = (x + left_offset[0], y + left_offset[1])
+    right_pos = (x + right_offset[0], y + right_offset[1])
     
     if roll <= 3 or 12 <= roll <= 14 or roll >= 23:
         # T-junction (2-3, 12-14, 23-24): 2x2 floor, wall blocks forward
-        # For 2-wide passage, create 2x2 junction area
-        if direction in [(0, -1), (0, 1)]:  # Vertical passage
-            # North/South: create 2x2 at (x-1,y), (x,y), (x-1,y+dir), (x,y+dir)
-            junc_tiles = [(x, y), (x-1, y), (x, y + direction[1]), (x-1, y + direction[1])]
-        else:  # Horizontal passage
-            # East/West: create 2x2 at (x,y-1), (x,y), (x+dir,y-1), (x+dir,y)
-            junc_tiles = [(x, y), (x, y-1), (x + direction[0], y), (x + direction[0], y-1)]
+        # Create 2x2 junction using center and the tile in the forward direction
+        forward_pos = (x + direction[0], y + direction[1])
+        forward_left = (forward_pos[0] + left_offset[0], forward_pos[1] + left_offset[1])
+        forward_right = (forward_pos[0] + right_offset[0], forward_pos[1] + right_offset[1])
         
+        junc_tiles = [left_pos, right_pos, forward_left, forward_right]
         for tx, ty in junc_tiles:
             dungeon.grid[(tx, ty)] = dungeon.TileType.FLOOR
         
         # Wall blocks forward direction (beyond the 2x2)
-        wall_x = x + direction[0] * 2
-        wall_y = y + direction[1] * 2
-        if direction in [(0, -1), (0, 1)]:
-            dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-            dungeon.grid[(wall_x-1, wall_y)] = dungeon.TileType.WALL
-        else:
-            dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-            dungeon.grid[(wall_x, wall_y-1)] = dungeon.TileType.WALL
+        wall_center = (x + direction[0] * 2, y + direction[1] * 2)
+        wall_left = (wall_center[0] + left_offset[0], wall_center[1] + left_offset[1])
+        wall_right = (wall_center[0] + right_offset[0], wall_center[1] + right_offset[1])
+        dungeon.grid[wall_left] = dungeon.TileType.WALL
+        dungeon.grid[wall_right] = dungeon.TileType.WALL
         
         # Side walls at junction
         perp_dirs = _get_both_perpendicular(direction)
-        dungeon.pending_junctions[(x, y)] = list(perp_dirs)
+        dungeon.pending_junctions[left_pos] = list(perp_dirs)
+        
     elif 4 <= roll <= 8:
-        # Dead end (4-8) - create 2-wide dead end cap
-        if direction in [(0, -1), (0, 1)]:  # Vertical passage
-            dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
-            dungeon.grid[(x-1, y)] = dungeon.TileType.PASSAGE_END
-        else:  # Horizontal passage
-            dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
-            dungeon.grid[(x, y-1)] = dungeon.TileType.PASSAGE_END
+        # Dead end (4-8) - place PASSAGE_END on both floor tiles
+        dungeon.grid[left_pos] = dungeon.TileType.PASSAGE_END
+        dungeon.grid[right_pos] = dungeon.TileType.PASSAGE_END
+        
     elif 9 <= roll <= 11:
-        # Right turn (9-11) - create 2-wide turn area
+        # Right turn (9-11)
         if direction == (1, 0):  # East -> South
             right_dir = (0, 1)
-            # Create 2x2 turn area
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
         elif direction == (-1, 0):  # West -> North
             right_dir = (0, -1)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
         elif direction == (0, 1):  # South -> West
             right_dir = (-1, 0)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
         else:  # North -> East
             right_dir = (1, 0)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
-        dungeon.pending_junctions[(x, y)] = [right_dir]
+        
+        # Create 2-wide turn area - place FLOOR at both positions
+        dungeon.grid[left_pos] = dungeon.TileType.FLOOR
+        dungeon.grid[right_pos] = dungeon.TileType.FLOOR
+        dungeon.pending_junctions[left_pos] = [right_dir]
+        
     elif 15 <= roll <= 17:
-        # Left turn (15-17) - create 2-wide turn area
+        # Left turn (15-17)
         if direction == (1, 0):  # East -> North
             left_dir = (0, -1)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
         elif direction == (-1, 0):  # West -> South
             left_dir = (0, 1)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
         elif direction == (0, 1):  # South -> East
             left_dir = (1, 0)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
         else:  # North -> West
             left_dir = (-1, 0)
-            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
-        dungeon.pending_junctions[(x, y)] = [left_dir]
+        
+        # Create 2-wide turn area
+        dungeon.grid[left_pos] = dungeon.TileType.FLOOR
+        dungeon.grid[right_pos] = dungeon.TileType.FLOOR
+        dungeon.pending_junctions[left_pos] = [left_dir]
+        
     elif 18 <= roll <= 19:
-        # Stairs down - place on both floor tiles of 2-wide passage
-        if direction in [(0, -1), (0, 1)]:  # Vertical passage
-            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
-            dungeon.grid[(x-1, y)] = dungeon.TileType.STAIRS_DOWN
-        else:  # Horizontal passage
-            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
-            dungeon.grid[(x, y-1)] = dungeon.TileType.STAIRS_DOWN
+        # Stairs down
+        dungeon.grid[left_pos] = dungeon.TileType.STAIRS_DOWN
+        dungeon.grid[right_pos] = dungeon.TileType.STAIRS_DOWN
+        
     elif 20 <= roll <= 22:
         # Stairs out
-        if direction in [(0, -1), (0, 1)]:  # Vertical passage
-            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
-            dungeon.grid[(x-1, y)] = dungeon.TileType.STAIRS_OUT
-        else:  # Horizontal passage
-            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
-            dungeon.grid[(x, y-1)] = dungeon.TileType.STAIRS_OUT
+        dungeon.grid[left_pos] = dungeon.TileType.STAIRS_OUT
+        dungeon.grid[right_pos] = dungeon.TileType.STAIRS_OUT
 
 
 def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
