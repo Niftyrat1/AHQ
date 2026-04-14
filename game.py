@@ -164,12 +164,11 @@ class GameState:
             self._exit_dungeon()
         
         # Check for wandering monsters in passages
-        self.combat_log.append(f"  Checking for wandering monsters at ({x},{y}): {len(self.dungeon.wandering_monsters)} locations: {list(self.dungeon.wandering_monsters)}")
         if (x, y) in self.dungeon.wandering_monsters:
             self.dungeon.wandering_monsters.remove((x, y))  # Remove so it only triggers once
             self.combat_log.append("Wandering monsters appear!")
             monster_ids = roll_lair_encounter()
-            self._start_combat_random(monster_ids)
+            self._start_combat_random(monster_ids, trigger_tile=(x, y))
     
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""
@@ -323,9 +322,19 @@ class GameState:
         self.hero_movement_remaining = {h.id: h.speed for h in self.party}
         self.hero_has_attacked.clear()
         
-        # Get valid spawn tiles (explored walkable area)
-        explored = list(self.dungeon.explored)
-        valid_tiles = [pos for pos in explored if self.dungeon.is_walkable(pos[0], pos[1])]
+        # Get valid spawn tiles
+        if trigger_tile:
+            # For wandering monsters, spawn near the trigger tile (adjacent to hero)
+            valid_tiles = []
+            for dx, dy in [(0, 0), (0, 1), (0, -1), (1, 0), (-1, 0), (0, 2), (0, -2), (2, 0), (-2, 0)]:
+                tx, ty = trigger_tile[0] + dx, trigger_tile[1] + dy
+                if self.dungeon.is_walkable(tx, ty):
+                    valid_tiles.append((tx, ty))
+            self.combat_log.append(f"  Wandering monsters spawning near {trigger_tile}, {len(valid_tiles)} valid tiles")
+        else:
+            # Get valid spawn tiles (explored walkable area)
+            explored = list(self.dungeon.explored)
+            valid_tiles = [pos for pos in explored if self.dungeon.is_walkable(pos[0], pos[1])]
         
         # Place monsters using WHQ rules
         self.monsters = place_monsters_whq_rules(
