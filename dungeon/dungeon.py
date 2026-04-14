@@ -69,9 +69,9 @@ class Dungeon:
         self.grid[(9, -1)] = TileType.WALL
         self.grid[(9, 1)] = TileType.WALL
         
-        # Generate North and South passages (no features in starting area)
-        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
-        generate_passage_from(self, 8, 0, (0, 1), auto_explore=False, features_enabled=False)
+        # Generate North and South passages from T-junction (features enabled)
+        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=True)
+        generate_passage_from(self, 8, 0, (0, 1), auto_explore=False, features_enabled=True)
         
     
     def get_tile(self, x: int, y: int) -> TileType:

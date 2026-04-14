@@ -217,8 +217,8 @@ class DungeonViewTk:
                 self._update_display()
             return
         
-        # Check for stairs down
-        if tile == TileType.STAIRS_DOWN:
+        # Check for stairs down (skip starting stairs at 0,0)
+        if tile == TileType.STAIRS_DOWN and (x, y) != (0, 0):
             from tkinter import messagebox
             if messagebox.askyesno("Stairs Down", f"Go down the stairs to the next level?"):
                 if self.on_stairs_down:
