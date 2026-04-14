@@ -162,10 +162,26 @@ class Dungeon:
         if not hasattr(self, 'pending_junctions'):
             return False
         
+        # Check if this position or any adjacent position is a pending junction
+        # (needed for 2x2 junctions where hero can step on any of the 4 tiles)
+        junction_pos = None
+        if pos in self.pending_junctions:
+            junction_pos = pos
+        else:
+            # Check adjacent tiles for junction reference
+            for dx, dy in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]:
+                check_pos = (x + dx, y + dy)
+                if check_pos in self.pending_junctions:
+                    junction_pos = check_pos
+                    break
+        
         # Not a pending junction - just do normal exploration
-        if pos not in self.pending_junctions:
+        if junction_pos is None:
             self._explore_from(x, y)
             return False
+        
+        # Use the found junction position
+        pos = junction_pos
         
         exits = self.pending_junctions[pos]
         if len(exits) == 1:
