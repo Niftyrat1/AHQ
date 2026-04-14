@@ -37,14 +37,18 @@ class Dungeon:
             print(f"[DUNGEON] {msg}")
     
     def _create_starting_area(self):
-        """Create the starting area: 2-wide passage East, 2x2 T-junction."""
+        """Create the starting area: 2x2 stairs, 2-wide passage East, 2x2 T-junction."""
         from .generator import generate_passage_from
         
-        # Stairs at origin (left side of 2-wide passage start)
+        # 2x2 Stairs block at origin (0,0)-(1,1)
         self.grid[(0, 0)] = TileType.STAIRS_DOWN
-        self.grid[(1, 0)] = TileType.FLOOR  # Right side of stairs area
+        self.grid[(1, 0)] = TileType.STAIRS_DOWN
+        self.grid[(0, 1)] = TileType.STAIRS_DOWN
+        self.grid[(1, 1)] = TileType.STAIRS_DOWN
         self.explored.add((0, 0))
         self.explored.add((1, 0))
+        self.explored.add((0, 1))
+        self.explored.add((1, 1))
         
         # West end cap walls (outer walls of 2-wide passage)
         self.grid[(-1, -1)] = TileType.WALL
@@ -52,48 +56,48 @@ class Dungeon:
         self.grid[(-1, 1)] = TileType.WALL
         self.grid[(-1, 2)] = TileType.WALL
         
-        # 2-wide passage going East for 7 tiles
-        for i in range(1, 8):
-            # Left and right floor tiles
+        # 2-wide passage going East for 7 tiles (starting from x=2, after stairs)
+        for i in range(2, 9):
+            # Left (y=0) and right (y=1) floor tiles
             self.grid[(i, 0)] = TileType.FLOOR
             self.grid[(i, 1)] = TileType.FLOOR
             self.explored.add((i, 0))
             self.explored.add((i, 1))
-            # Outer walls
+            # Outer walls (north at y=-1, south at y=2)
             self.grid[(i, -1)] = TileType.WALL
             self.grid[(i, 2)] = TileType.WALL
         
-        # Stairs North and South walls (outer walls)
+        # North and South walls at stairs area
         self.grid[(0, -1)] = TileType.WALL
-        self.grid[(0, 2)] = TileType.WALL
         self.grid[(1, -1)] = TileType.WALL
+        self.grid[(0, 2)] = TileType.WALL
         self.grid[(1, 2)] = TileType.WALL
         
-        # 2x2 T-junction at (8,0)-(9,1)
-        self.grid[(8, 0)] = TileType.FLOOR
-        self.grid[(8, 1)] = TileType.FLOOR
+        # 2x2 T-junction at (9,0)-(10,1)
         self.grid[(9, 0)] = TileType.FLOOR
         self.grid[(9, 1)] = TileType.FLOOR
-        self.explored.add((8, 0))
-        self.explored.add((8, 1))
+        self.grid[(10, 0)] = TileType.FLOOR
+        self.grid[(10, 1)] = TileType.FLOOR
         self.explored.add((9, 0))
         self.explored.add((9, 1))
+        self.explored.add((10, 0))
+        self.explored.add((10, 1))
         
         # Wall straight ahead (East of 2x2 junction)
-        self.grid[(10, -1)] = TileType.WALL
-        self.grid[(10, 0)] = TileType.WALL
-        self.grid[(10, 1)] = TileType.WALL
-        self.grid[(10, 2)] = TileType.WALL
+        self.grid[(11, -1)] = TileType.WALL
+        self.grid[(11, 0)] = TileType.WALL
+        self.grid[(11, 1)] = TileType.WALL
+        self.grid[(11, 2)] = TileType.WALL
         
         # Side walls at junction
-        self.grid[(8, -1)] = TileType.WALL
         self.grid[(9, -1)] = TileType.WALL
-        self.grid[(8, 2)] = TileType.WALL
+        self.grid[(10, -1)] = TileType.WALL
         self.grid[(9, 2)] = TileType.WALL
+        self.grid[(10, 2)] = TileType.WALL
         
-        # Generate North and South passages from T-junction center
-        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
-        generate_passage_from(self, 8, 1, (0, 1), auto_explore=False, features_enabled=False)
+        # Generate North and South passages from T-junction
+        generate_passage_from(self, 9, 0, (0, -1), auto_explore=False, features_enabled=False)
+        generate_passage_from(self, 9, 1, (0, 1), auto_explore=False, features_enabled=False)
         
     
     def get_tile(self, x: int, y: int) -> TileType:
@@ -117,7 +121,7 @@ class Dungeon:
                        TileType.PIT_TRAP, TileType.TREASURE_CLOSED)
     
     def _explore_from(self, x: int, y: int):
-        """Reveal tiles using line-of-sight."""
+        """Reveal tiles using line-of-sight. For 2-wide passages, reveals both rows."""
         self.explored.add((x, y))
         
         # Check if hero is inside a room - reveal entire room
@@ -128,31 +132,50 @@ class Dungeon:
                 return
         
         # Not in a room - use line-of-sight
+        # For 2-wide passages, we need to explore in both rows
         directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
         max_range = 30
         
+        # Determine if we're in a 2-wide passage and find the offset to the parallel row
+        parallel_offsets = [(0, 0)]  # Default: just this row
+        
+        # Check for 2-wide passage: look for adjacent floor perpendicular to East-West
+        if self.get_tile(x, y + 1) in (TileType.FLOOR, TileType.STAIRS_DOWN):
+            parallel_offsets = [(0, 0), (0, 1)]  # Two rows: y and y+1
+        elif self.get_tile(x, y - 1) in (TileType.FLOOR, TileType.STAIRS_DOWN):
+            parallel_offsets = [(0, -1), (0, 0)]  # Two rows: y-1 and y
+        # Check for 2-wide passage perpendicular to North-South
+        elif self.get_tile(x + 1, y) in (TileType.FLOOR, TileType.STAIRS_DOWN):
+            parallel_offsets = [(0, 0), (1, 0)]  # Two rows: x and x+1
+        elif self.get_tile(x - 1, y) in (TileType.FLOOR, TileType.STAIRS_DOWN):
+            parallel_offsets = [(-1, 0), (0, 0)]  # Two rows: x-1 and x
+        
         for dx, dy in directions:
-            curr_x, curr_y = x, y
-            for _ in range(max_range):
-                curr_x += dx
-                curr_y += dy
-                pos = (curr_x, curr_y)
-                tile = self.get_tile(curr_x, curr_y)
+            for offset_x, offset_y in parallel_offsets:
+                start_x = x + offset_x
+                start_y = y + offset_y
+                curr_x, curr_y = start_x, start_y
                 
-                if tile == TileType.UNEXPLORED:
-                    break
-                
-                self.explored.add(pos)
-                
-                if tile in (TileType.FLOOR, TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
-                    for side_dx, side_dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                        adj_pos = (curr_x + side_dx, curr_y + side_dy)
-                        adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
-                        if adj_tile in (TileType.WALL, TileType.PASSAGE_END, TileType.DOOR_CLOSED, TileType.DOOR_OPEN):
-                            self.explored.add(adj_pos)
-                
-                if tile in (TileType.WALL, TileType.PASSAGE_END):
-                    break
+                for _ in range(max_range):
+                    curr_x += dx
+                    curr_y += dy
+                    pos = (curr_x, curr_y)
+                    tile = self.get_tile(curr_x, curr_y)
+                    
+                    if tile == TileType.UNEXPLORED:
+                        break
+                    
+                    self.explored.add(pos)
+                    
+                    if tile in (TileType.FLOOR, TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
+                        for side_dx, side_dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            adj_pos = (curr_x + side_dx, curr_y + side_dy)
+                            adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
+                            if adj_tile in (TileType.WALL, TileType.PASSAGE_END, TileType.DOOR_CLOSED, TileType.DOOR_OPEN):
+                                self.explored.add(adj_pos)
+                    
+                    if tile in (TileType.WALL, TileType.PASSAGE_END):
+                        break
     
     def check_and_generate_junction(self, x: int, y: int) -> bool:
         """Check if position is a pending junction and generate/explore its exits."""

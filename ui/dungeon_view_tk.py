@@ -217,8 +217,9 @@ class DungeonViewTk:
                 self._update_display()
             return
         
-        # Check for stairs down (skip starting stairs at 0,0)
-        if tile == TileType.STAIRS_DOWN and (x, y) != (0, 0):
+        # Check for stairs down (skip starting 2x2 stairs at (0,0)-(1,1))
+        starting_stairs = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        if tile == TileType.STAIRS_DOWN and (x, y) not in starting_stairs:
             from tkinter import messagebox
             if messagebox.askyesno("Stairs Down", f"Go down the stairs to the next level?"):
                 if self.on_stairs_down:
@@ -408,8 +409,9 @@ class DungeonViewTk:
                         self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
                                                text="OUT", fill="#222", font=("Arial", 8))
                     elif tile == TileType.STAIRS_DOWN:
-                        # Check if this is the starting stairs at (0,0)
-                        if (x, y) == (0, 0):
+                        # Check if this is the starting 2x2 stairs
+                        starting_stairs = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                        if (x, y) in starting_stairs:
                             self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
                                                    text="START", fill="#222", font=("Arial", 7))
                         else:
