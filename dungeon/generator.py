@@ -434,9 +434,9 @@ def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     
     # Add content based on room type
     if room_type == "lair":
-        _place_monsters_in_room(dungeon, room_tiles, "lair")
+        _place_monsters_in_room(dungeon, room_tiles, "lair", door_x, door_y)
     elif room_type == "quest":
-        _place_monsters_in_room(dungeon, room_tiles, "quest")
+        _place_monsters_in_room(dungeon, room_tiles, "quest", door_x, door_y)
 
 
 def _roll_room_doors() -> int:
@@ -481,7 +481,7 @@ def _add_doors_to_room(dungeon: "Dungeon", cx: int, cy: int, half_w: int, half_h
             doors_placed += 1
 
 
-def _place_monsters_in_room(dungeon: "Dungeon", room_tiles: List[Tuple[int, int]], encounter_type: str):
+def _place_monsters_in_room(dungeon: "Dungeon", room_tiles: List[Tuple[int, int]], encounter_type: str, door_x: int, door_y: int):
     """Place monsters in a room."""
     from monster import roll_lair_encounter, roll_quest_room_encounter
     
@@ -491,10 +491,11 @@ def _place_monsters_in_room(dungeon: "Dungeon", room_tiles: List[Tuple[int, int]
         monster_ids = roll_quest_room_encounter()
     
     dungeon._log(f"  Placing monsters in {encounter_type} room: {monster_ids}")
-    dungeon._log(f"  Room has {len(room_tiles)} tiles, hero_start at {dungeon.hero_start}")
+    dungeon._log(f"  Room has {len(room_tiles)} tiles, door at ({door_x},{door_y})")
     
-    available = [t for t in room_tiles if not dungeon._is_near_entrance(t[0], t[1])]
-    dungeon._log(f"  Available tiles for monsters (not near entrance): {len(available)}")
+    # Check distance from room entrance (door), not dungeon start
+    available = [t for t in room_tiles if abs(t[0] - door_x) + abs(t[1] - door_y) > 2]
+    dungeon._log(f"  Available tiles for monsters (not near door): {len(available)}")
     
     for monster_id in monster_ids:
         if available:
