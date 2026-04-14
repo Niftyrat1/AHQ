@@ -418,16 +418,12 @@ class GameState:
     
     def open_door(self, x: int, y: int) -> bool:
         """Open a door and possibly trigger combat."""
-        # Log monsters BEFORE opening door
-        self.combat_log.append(f"  Before open_door: dungeon.monsters = {dict(self.dungeon.monsters)}")
-        
         if not self.dungeon.open_door(x, y):
             return False
         
         self.combat_log.append(f"Door opened at ({x}, {y})")
         
         # Check if room has monsters placed by dungeon generation
-        self.combat_log.append(f"  After open_door: dungeon.monsters = {dict(self.dungeon.monsters)}")
         if self.dungeon.monsters:
             monster_data = list(self.dungeon.monsters.items())  # [(pos, id), ...]
             self.combat_log.append(f"  Found monsters: {monster_data}")
