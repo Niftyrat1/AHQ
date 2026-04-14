@@ -167,6 +167,9 @@ class GameState:
         if (x, y) in self.dungeon.wandering_monsters:
             self.dungeon.wandering_monsters.remove((x, y))  # Remove so it only triggers once
             self.combat_log.append("Wandering monsters appear!")
+            # Debug: Check what tiles are explored around this position
+            explored_nearby = [pos for pos in self.dungeon.explored if abs(pos[0]-x) + abs(pos[1]-y) <= 3]
+            self.combat_log.append(f"  Explored tiles within 3 squares: {explored_nearby}")
             monster_ids = roll_lair_encounter()
             self._start_combat_random(monster_ids, trigger_tile=(x, y))
     
@@ -341,6 +344,7 @@ class GameState:
             monster_ids, valid_tiles, self.dungeon, self.party,
             self.monster_library, self.combat_log
         )
+        self.combat_log.append(f"  Placed {len(self.monsters)} monsters: {[(m.name, m.x, m.y) for m in self.monsters]}")
         
         # Surprise roll
         has_elf = any(h.race == "Elf" for h in self.party)
