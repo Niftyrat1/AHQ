@@ -48,7 +48,6 @@ class Dungeon:
         self.grid[(-1, 0)] = TileType.WALL
         self.grid[(-1, -1)] = TileType.WALL
         self.grid[(-1, 1)] = TileType.WALL
-        self.explored.update([(-1, 0), (-1, -1), (-1, 1)])
         
         # Passage tiles 1-7 going East
         for i in range(1, 8):
@@ -56,14 +55,10 @@ class Dungeon:
             self.explored.add((i, 0))
             self.grid[(i, -1)] = TileType.WALL
             self.grid[(i, 1)] = TileType.WALL
-            self.explored.add((i, -1))
-            self.explored.add((i, 1))
         
         # Stairs North and South walls
         self.grid[(0, -1)] = TileType.WALL
         self.grid[(0, 1)] = TileType.WALL
-        self.explored.add((0, -1))
-        self.explored.add((0, 1))
         
         # T-junction at (8, 0)
         self.grid[(8, 0)] = TileType.FLOOR
@@ -73,7 +68,6 @@ class Dungeon:
         self.grid[(9, 0)] = TileType.WALL
         self.grid[(9, -1)] = TileType.WALL
         self.grid[(9, 1)] = TileType.WALL
-        self.explored.update([(9, 0), (9, -1), (9, 1)])
         
         # Generate North and South passages (no features in starting area)
         generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
