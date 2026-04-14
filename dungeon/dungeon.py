@@ -37,41 +37,63 @@ class Dungeon:
             print(f"[DUNGEON] {msg}")
     
     def _create_starting_area(self):
-        """Create the starting area: stairs, passage East, T-junction."""
+        """Create the starting area: 2-wide passage East, 2x2 T-junction."""
         from .generator import generate_passage_from
         
-        # Stairs at origin
+        # Stairs at origin (left side of 2-wide passage start)
         self.grid[(0, 0)] = TileType.STAIRS_DOWN
+        self.grid[(1, 0)] = TileType.FLOOR  # Right side of stairs area
         self.explored.add((0, 0))
+        self.explored.add((1, 0))
         
-        # West end cap wall
-        self.grid[(-1, 0)] = TileType.WALL
+        # West end cap walls (outer walls of 2-wide passage)
         self.grid[(-1, -1)] = TileType.WALL
+        self.grid[(-1, 0)] = TileType.WALL
         self.grid[(-1, 1)] = TileType.WALL
+        self.grid[(-1, 2)] = TileType.WALL
         
-        # Passage tiles 1-7 going East
+        # 2-wide passage going East for 7 tiles
         for i in range(1, 8):
+            # Left and right floor tiles
             self.grid[(i, 0)] = TileType.FLOOR
+            self.grid[(i, 1)] = TileType.FLOOR
             self.explored.add((i, 0))
+            self.explored.add((i, 1))
+            # Outer walls
             self.grid[(i, -1)] = TileType.WALL
-            self.grid[(i, 1)] = TileType.WALL
+            self.grid[(i, 2)] = TileType.WALL
         
-        # Stairs North and South walls
+        # Stairs North and South walls (outer walls)
         self.grid[(0, -1)] = TileType.WALL
-        self.grid[(0, 1)] = TileType.WALL
+        self.grid[(0, 2)] = TileType.WALL
+        self.grid[(1, -1)] = TileType.WALL
+        self.grid[(1, 2)] = TileType.WALL
         
-        # T-junction at (8, 0)
+        # 2x2 T-junction at (8,0)-(9,1)
         self.grid[(8, 0)] = TileType.FLOOR
+        self.grid[(8, 1)] = TileType.FLOOR
+        self.grid[(9, 0)] = TileType.FLOOR
+        self.grid[(9, 1)] = TileType.FLOOR
         self.explored.add((8, 0))
+        self.explored.add((8, 1))
+        self.explored.add((9, 0))
+        self.explored.add((9, 1))
         
-        # Wall straight ahead (East)
-        self.grid[(9, 0)] = TileType.WALL
+        # Wall straight ahead (East of 2x2 junction)
+        self.grid[(10, -1)] = TileType.WALL
+        self.grid[(10, 0)] = TileType.WALL
+        self.grid[(10, 1)] = TileType.WALL
+        self.grid[(10, 2)] = TileType.WALL
+        
+        # Side walls at junction
+        self.grid[(8, -1)] = TileType.WALL
         self.grid[(9, -1)] = TileType.WALL
-        self.grid[(9, 1)] = TileType.WALL
+        self.grid[(8, 2)] = TileType.WALL
+        self.grid[(9, 2)] = TileType.WALL
         
-        # Generate North and South passages from T-junction (features enabled)
-        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=True)
-        generate_passage_from(self, 8, 0, (0, 1), auto_explore=False, features_enabled=True)
+        # Generate North and South passages from T-junction center
+        generate_passage_from(self, 8, 0, (0, -1), auto_explore=False, features_enabled=False)
+        generate_passage_from(self, 8, 1, (0, 1), auto_explore=False, features_enabled=False)
         
     
     def get_tile(self, x: int, y: int) -> TileType:
