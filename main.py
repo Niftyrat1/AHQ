@@ -17,6 +17,9 @@ from game import GameState
 from ui.tavern_tk import TavernScreenTk
 from ui.dungeon_view_tk import DungeonViewTk
 
+# Track last combat log index shown to avoid duplicates
+_last_log_index = 0
+
 
 # Window settings
 SCREEN_WIDTH = 1024
@@ -28,6 +31,9 @@ def main():
     """Main entry point using tkinter."""
     # Initialize game state
     game = GameState()
+    dungeon_view = None
+    tavern_screen = None
+    _last_log_index = 0
     
     # Check for save game
     has_save = game.has_save_game()
@@ -58,6 +64,8 @@ def main():
     
     # Set up callbacks
     def on_begin_quest(party):
+        global _last_log_index
+        _last_log_index = 0
         game.start_quest(party)
         switch_to_dungeon()
     
@@ -77,6 +85,7 @@ def main():
             dungeon_view.update_state()
     
     def on_end_phase():
+        global _last_log_index
         dungeon_view.add_log_message("--- Ending Hero Phase ---")
         game.end_hero_phase()
         dungeon_view.hero_phase = game.hero_phase_active
@@ -84,9 +93,10 @@ def main():
         dungeon_view.monsters = game.monsters
         dungeon_view.update_state()
         
-        # Add GM phase results to log
-        for msg in game.combat_log[-5:]:
+        # Add only NEW messages from combat log
+        for msg in game.combat_log[_last_log_index:]:
             dungeon_view.add_log_message(msg)
+        _last_log_index = len(game.combat_log)
     
     def on_exit_dungeon():
         game._exit_dungeon()
