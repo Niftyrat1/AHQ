@@ -73,7 +73,7 @@ class Dungeon:
         self.grid[(0, 2)] = TileType.WALL
         self.grid[(1, 2)] = TileType.WALL
         
-        # 2x2 T-junction at (9,0)-(10,1)
+        # 2x2 T-junction at (9,0)-(10,1) - this is the junction floor
         self.grid[(9, 0)] = TileType.FLOOR
         self.grid[(9, 1)] = TileType.FLOOR
         self.grid[(10, 0)] = TileType.FLOOR
@@ -83,21 +83,22 @@ class Dungeon:
         self.explored.add((10, 0))
         self.explored.add((10, 1))
         
-        # Wall straight ahead (East of 2x2 junction)
-        self.grid[(11, -1)] = TileType.WALL
-        self.grid[(11, 0)] = TileType.WALL
-        self.grid[(11, 1)] = TileType.WALL
-        self.grid[(11, 2)] = TileType.WALL
+        # Wall straight ahead (East) at x=13 - 2 tiles beyond the 2x2 junction
+        # The junction is at 9-10, so walls go at 11-12 (2-wide passage space) and cap at 13
+        self.grid[(13, -1)] = TileType.WALL
+        self.grid[(13, 0)] = TileType.WALL
+        self.grid[(13, 1)] = TileType.WALL
+        self.grid[(13, 2)] = TileType.WALL
         
-        # Side walls at junction
-        self.grid[(9, -1)] = TileType.WALL
-        self.grid[(10, -1)] = TileType.WALL
-        self.grid[(9, 2)] = TileType.WALL
-        self.grid[(10, 2)] = TileType.WALL
+        # Side walls further out (3 tiles from junction - 2 for passage + 1 cap wall)
+        self.grid[(9, -3)] = TileType.WALL
+        self.grid[(10, -3)] = TileType.WALL
+        self.grid[(9, 4)] = TileType.WALL
+        self.grid[(10, 4)] = TileType.WALL
         
-        # Generate North and South passages from T-junction
-        generate_passage_from(self, 9, 0, (0, -1), auto_explore=False, features_enabled=False)
-        generate_passage_from(self, 9, 1, (0, 1), auto_explore=False, features_enabled=False)
+        # Set up pending junction for North and South passages
+        # The reference point is (9,0) - hero triggers when stepping on any of the 2x2 tiles
+        self.pending_junctions[(9, 0)] = [(0, -1), (0, 1)]
         
     
     def get_tile(self, x: int, y: int) -> TileType:
