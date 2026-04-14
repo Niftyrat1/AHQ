@@ -131,6 +131,7 @@ def generate_passage_from(
     # After all sections are placed, roll passage end
     end_roll = random.randint(1, 12) + random.randint(1, 12)
     end_x, end_y = current_x + direction[0], current_y + direction[1]
+    dungeon._log(f"    Passage ends at center ({end_x},{end_y}), roll: {end_roll}")
     _resolve_passage_end(dungeon, end_x, end_y, direction, end_roll)
     
     # After _resolve_passage_end, we may need to cap walls for dead ends and stairs
@@ -139,12 +140,14 @@ def generate_passage_from(
     right_pos = (end_x + right_offset[0], end_y + right_offset[1])
     
     end_tile = dungeon.get_tile(left_pos[0], left_pos[1])
+    dungeon._log(f"    End tile check at {left_pos}: {end_tile}")
     is_dead_end_or_stairs = end_tile in (dungeon.TileType.PASSAGE_END, dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
     
     # If dead end or stairs, cap with forward walls
     if is_dead_end_or_stairs:
         beyond_left = (left_pos[0] + direction[0], left_pos[1] + direction[1])
         beyond_right = (right_pos[0] + direction[0], right_pos[1] + direction[1])
+        dungeon._log(f"    Capping walls at {beyond_left} and {beyond_right}")
         for wall_pos in [beyond_left, beyond_right]:
             if dungeon.get_tile(wall_pos[0], wall_pos[1]) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                 dungeon.grid[wall_pos] = dungeon.TileType.WALL
@@ -191,8 +194,10 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         
     elif 4 <= roll <= 8:
         # Dead end (4-8) - place PASSAGE_END on both floor tiles
+        dungeon._log(f"    Dead end at {left_pos} and {right_pos}")
         dungeon.grid[left_pos] = dungeon.TileType.PASSAGE_END
         dungeon.grid[right_pos] = dungeon.TileType.PASSAGE_END
+        dungeon._log(f"    Placed PASSAGE_END tiles")
         
     elif 9 <= roll <= 11:
         # Right turn (9-11)
