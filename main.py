@@ -70,8 +70,15 @@ def main():
         switch_to_dungeon()
     
     def on_hero_move(hero, x, y):
+        log_before = len(game.combat_log)
         if game.move_hero(hero, x, y):
             dungeon_view.add_log_message(f"{hero.name} moves to ({x}, {y})")
+            # Show any wandering monster messages immediately
+            for msg in game.combat_log[log_before:]:
+                dungeon_view.add_log_message(msg)
+            # Update monsters if wandering monsters appeared
+            dungeon_view.monsters = game.monsters
+            dungeon_view.update_state()
             return True
         return False
     
