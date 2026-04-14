@@ -203,58 +203,68 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         perp_dirs = _get_both_perpendicular(direction)
         dungeon.pending_junctions[(x, y)] = list(perp_dirs)
     elif 4 <= roll <= 8:
-        # Dead end (4-8)
-        dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
+        # Dead end (4-8) - create 2-wide dead end cap
+        if direction in [(0, -1), (0, 1)]:  # Vertical passage
+            dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
+            dungeon.grid[(x-1, y)] = dungeon.TileType.PASSAGE_END
+        else:  # Horizontal passage
+            dungeon.grid[(x, y)] = dungeon.TileType.PASSAGE_END
+            dungeon.grid[(x, y-1)] = dungeon.TileType.PASSAGE_END
     elif 9 <= roll <= 11:
-        # Right turn (9-11)
-        dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-        if direction == (1, 0):
+        # Right turn (9-11) - create 2-wide turn area
+        if direction == (1, 0):  # East -> South
             right_dir = (0, 1)
-        elif direction == (-1, 0):
+            # Create 2x2 turn area
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
+        elif direction == (-1, 0):  # West -> North
             right_dir = (0, -1)
-        elif direction == (0, 1):
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
+        elif direction == (0, 1):  # South -> West
             right_dir = (-1, 0)
-        else:
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
+        else:  # North -> East
             right_dir = (1, 0)
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
         dungeon.pending_junctions[(x, y)] = [right_dir]
-        right_x, right_y = x + right_dir[0], y + right_dir[1]
-        if dungeon.get_tile(right_x, right_y) == dungeon.TileType.WALL:
-            del dungeon.grid[(right_x, right_y)]
-        forward_x, forward_y = x + direction[0], y + direction[1]
-        left_dir = (-right_dir[0], -right_dir[1])
-        left_x, left_y = x + left_dir[0], y + left_dir[1]
-        if dungeon.get_tile(forward_x, forward_y) == dungeon.TileType.UNEXPLORED:
-            dungeon.grid[(forward_x, forward_y)] = dungeon.TileType.WALL
-        if dungeon.get_tile(left_x, left_y) == dungeon.TileType.UNEXPLORED:
-            dungeon.grid[(left_x, left_y)] = dungeon.TileType.WALL
     elif 15 <= roll <= 17:
-        # Left turn (15-17)
-        dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
-        if direction == (1, 0):
+        # Left turn (15-17) - create 2-wide turn area
+        if direction == (1, 0):  # East -> North
             left_dir = (0, -1)
-        elif direction == (-1, 0):
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
+        elif direction == (-1, 0):  # West -> South
             left_dir = (0, 1)
-        elif direction == (0, 1):
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x, y-1)] = dungeon.TileType.FLOOR
+        elif direction == (0, 1):  # South -> East
             left_dir = (1, 0)
-        else:
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
+        else:  # North -> West
             left_dir = (-1, 0)
+            dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
+            dungeon.grid[(x-1, y)] = dungeon.TileType.FLOOR
         dungeon.pending_junctions[(x, y)] = [left_dir]
-        left_x, left_y = x + left_dir[0], y + left_dir[1]
-        if dungeon.get_tile(left_x, left_y) == dungeon.TileType.WALL:
-            del dungeon.grid[(left_x, left_y)]
-        forward_x, forward_y = x + direction[0], y + direction[1]
-        right_dir = (-left_dir[0], -left_dir[1])
-        right_x, right_y = x + right_dir[0], y + right_dir[1]
-        if dungeon.get_tile(forward_x, forward_y) == dungeon.TileType.UNEXPLORED:
-            dungeon.grid[(forward_x, forward_y)] = dungeon.TileType.WALL
-        if dungeon.get_tile(right_x, right_y) == dungeon.TileType.UNEXPLORED:
-            dungeon.grid[(right_x, right_y)] = dungeon.TileType.WALL
     elif 18 <= roll <= 19:
-        # Stairs down
-        dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
+        # Stairs down - place on both floor tiles of 2-wide passage
+        if direction in [(0, -1), (0, 1)]:  # Vertical passage
+            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
+            dungeon.grid[(x-1, y)] = dungeon.TileType.STAIRS_DOWN
+        else:  # Horizontal passage
+            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_DOWN
+            dungeon.grid[(x, y-1)] = dungeon.TileType.STAIRS_DOWN
     elif 20 <= roll <= 22:
         # Stairs out
-        dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
+        if direction in [(0, -1), (0, 1)]:  # Vertical passage
+            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
+            dungeon.grid[(x-1, y)] = dungeon.TileType.STAIRS_OUT
+        else:  # Horizontal passage
+            dungeon.grid[(x, y)] = dungeon.TileType.STAIRS_OUT
+            dungeon.grid[(x, y-1)] = dungeon.TileType.STAIRS_OUT
 
 
 def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
