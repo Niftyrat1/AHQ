@@ -83,18 +83,11 @@ class Dungeon:
         self.explored.add((10, 0))
         self.explored.add((10, 1))
         
-        # Wall straight ahead (East) at x=13 - 2 tiles beyond the 2x2 junction
-        # The junction is at 9-10, so walls go at 11-12 (2-wide passage space) and cap at 13
+        # Wall straight ahead (East) at x=13 - beyond the 2x2 junction
         self.grid[(13, -1)] = TileType.WALL
         self.grid[(13, 0)] = TileType.WALL
         self.grid[(13, 1)] = TileType.WALL
         self.grid[(13, 2)] = TileType.WALL
-        
-        # Side walls further out (3 tiles from junction - 2 for passage + 1 cap wall)
-        self.grid[(9, -3)] = TileType.WALL
-        self.grid[(10, -3)] = TileType.WALL
-        self.grid[(9, 4)] = TileType.WALL
-        self.grid[(10, 4)] = TileType.WALL
         
         # Set up pending junction for North and South passages
         # The reference point is (9,0) - hero triggers when stepping on any of the 2x2 tiles
@@ -223,14 +216,23 @@ class Dungeon:
             junc_type = f"{len(exits)}-way junction"
         
         
+        # For 2-wide passages, remove walls at both left and right positions
         for direction in exits:
-            wall_x = x + direction[0]
-            wall_y = y + direction[1]
-            tile = self.get_tile(wall_x, wall_y)
-            if tile == TileType.WALL:
-                is_room_wall = self._is_room_wall(wall_x, wall_y)
-                if not is_room_wall:
-                    del self.grid[(wall_x, wall_y)]
+            # Calculate left/right offsets based on direction
+            if direction in [(0, -1), (0, 1)]:  # North/South
+                left_offset, right_offset = (-1, 0), (1, 0)
+            else:  # East/West
+                left_offset, right_offset = (0, -1), (0, 1)
+            
+            # Remove walls at both positions for 2-wide passage
+            for offset in [left_offset, right_offset]:
+                wall_x = x + direction[0] + offset[0]
+                wall_y = y + direction[1] + offset[1]
+                tile = self.get_tile(wall_x, wall_y)
+                if tile == TileType.WALL:
+                    is_room_wall = self._is_room_wall(wall_x, wall_y)
+                    if not is_room_wall:
+                        del self.grid[(wall_x, wall_y)]
         
         exits = self.pending_junctions.pop(pos)
 
