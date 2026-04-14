@@ -113,7 +113,7 @@ class Dungeon:
         
         # Not in a room - use line-of-sight
         directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
-        max_range = 6
+        max_range = 30
         
         for dx, dy in directions:
             curr_x, curr_y = x, y
