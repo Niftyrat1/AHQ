@@ -152,7 +152,11 @@ class GameState:
         self.hero_movement_remaining[hero.id] = remaining - dist
         
         # Check for junctions (this will explore new passages if it's a pending junction)
+        log_count_before = len(self.dungeon_debug_log)
         self.dungeon.check_and_generate_junction(x, y)
+        # Add any new dungeon logs to combat log
+        for msg in self.dungeon_debug_log[log_count_before:]:
+            self.combat_log.append(f"[DUNGEON] {msg}")
         
         # Check for encounter triggers
         self._check_triggers(x, y)
