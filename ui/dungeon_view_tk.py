@@ -83,7 +83,7 @@ class DungeonViewTk:
         # Monsters section
         tk.Label(self.left_frame, text="Monsters", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#f44").pack(anchor=tk.W, pady=(10, 0))
         
-        self.monsters_text = tk.Text(self.left_frame, width=25, height=10, font=("Courier", 9),
+        self.monsters_text = tk.Text(self.left_frame, width=25, height=16, font=("Courier", 9),
                                      bg="#222", fg="#f88", insertwidth=0, takefocus=0)
         self.monsters_text.pack(fill=tk.X, expand=False)
         
