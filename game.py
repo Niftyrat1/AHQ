@@ -54,6 +54,9 @@ class GameState:
         self.hero_phase_active = True
         self.turn_count = 0
         self.combat_log = ["The expedition enters the dungeon..."]
+        # Add any dungeon generation logs
+        for msg in self.dungeon_debug_log:
+            self.combat_log.append(f"[DUNGEON] {msg}")
         self.experience_gained = 0
         self.gold_found = 0
         
