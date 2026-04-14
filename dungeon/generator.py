@@ -98,7 +98,6 @@ def generate_passage_from(
                         if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                             dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                             dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
-                            dungeon.explored.add((door_x, door_y))
                 elif 20 <= feature_roll <= 21:
                     # 2 doors on sides - check if positions are suitable
                     side_dirs = _get_both_perpendicular(direction)
@@ -109,7 +108,6 @@ def generate_passage_from(
                             if dungeon.get_tile(door_x, door_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                                 dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
                                 dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
-                                dungeon.explored.add((door_x, door_y))
     
     # After all sections are placed, roll passage end
     end_roll = random.randint(1, 12) + random.randint(1, 12)
