@@ -128,7 +128,6 @@ def generate_passage_from(
         if is_dead_end_or_stairs:
             if dungeon.get_tile(wall_x, wall_y) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
                 dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-                dungeon.explored.add((wall_x, wall_y))
         elif not is_pending_junction and dungeon.get_tile(wall_x, wall_y) == dungeon.TileType.UNEXPLORED:
             dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
     
@@ -139,7 +138,6 @@ def generate_passage_from(
         beyond_tile = dungeon.get_tile(beyond_x, beyond_y)
         if beyond_tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
             dungeon.grid[(beyond_x, beyond_y)] = dungeon.TileType.WALL
-            dungeon.explored.add((beyond_x, beyond_y))
     
     return passage_tiles
 
@@ -156,12 +154,10 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         wall_x = x + direction[0]
         wall_y = y + direction[1]
         dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
-        dungeon.explored.add((wall_x, wall_y))
         for side in _get_both_perpendicular(direction):
             side_x = wall_x + side[0]
             side_y = wall_y + side[1]
             dungeon.grid[(side_x, side_y)] = dungeon.TileType.WALL
-            dungeon.explored.add((side_x, side_y))
         perp_dirs = _get_both_perpendicular(direction)
         dungeon.pending_junctions[(x, y)] = list(perp_dirs)
     elif 4 <= roll <= 8:
