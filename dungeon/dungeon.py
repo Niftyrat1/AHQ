@@ -187,7 +187,11 @@ class Dungeon:
         from .generator import generate_passage_from
         
         pos = (x, y)
+        self._log(f"check_and_generate_junction called at {pos}")
+        self._log(f"  pending_junctions: {list(self.pending_junctions.keys())}")
+        
         if not hasattr(self, 'pending_junctions'):
+            self._log(f"  No pending_junctions attribute")
             return False
         
         # Check if this position or any adjacent position is a pending junction
@@ -195,16 +199,19 @@ class Dungeon:
         junction_pos = None
         if pos in self.pending_junctions:
             junction_pos = pos
+            self._log(f"  Found junction at exact position {pos}")
         else:
             # Check adjacent tiles for junction reference
             for dx, dy in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]:
                 check_pos = (x + dx, y + dy)
                 if check_pos in self.pending_junctions:
                     junction_pos = check_pos
+                    self._log(f"  Found junction at adjacent position {check_pos}")
                     break
         
         # Not a pending junction - just do normal exploration
         if junction_pos is None:
+            self._log(f"  No junction found, doing normal exploration")
             self._explore_from(x, y)
             return False
         
@@ -246,10 +253,13 @@ class Dungeon:
                         del self.grid[(wall_x, wall_y)]
         
         exits = self.pending_junctions.pop(pos)
+        self._log(f"  Generating passages for exits: {exits}")
 
         all_passage_tiles = []
         for direction in exits:
+            self._log(f"  Generating passage from {pos} in direction {direction}")
             passage_tiles = generate_passage_from(self, x, y, direction)
+            self._log(f"  Generated {len(passage_tiles)} tiles")
             all_passage_tiles.extend(passage_tiles)
 
         # Explicitly explore all generated passage tiles and their adjacent walls
