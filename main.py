@@ -76,9 +76,9 @@ def main():
             # Show any wandering monster messages immediately
             for msg in game.combat_log[log_before:]:
                 dungeon_view.add_log_message(msg)
-            # Update monsters if wandering monsters appeared
-            dungeon_view.monsters = game.monsters
-            dungeon_view.update_state()
+            # Force immediate UI refresh for monsters
+            dungeon_view._sync_from_game()
+            dungeon_view._update_display()
             return True
         return False
     
