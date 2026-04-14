@@ -89,16 +89,37 @@ class Dungeon:
         self.explored.add((10, 0))
         self.explored.add((10, 1))
         
-        # Wall straight ahead (East) at x=13 - beyond the 2x2 junction
-        self.grid[(13, -1)] = TileType.WALL
-        self.grid[(13, 0)] = TileType.WALL
-        self.grid[(13, 1)] = TileType.WALL
-        self.grid[(13, 2)] = TileType.WALL
+        # Wall straight ahead (East) at x=11 - 1 tile beyond the 2x2 junction at 9-10
+        self.grid[(11, -1)] = TileType.WALL
+        self.grid[(11, 0)] = TileType.WALL
+        self.grid[(11, 1)] = TileType.WALL
+        self.grid[(11, 2)] = TileType.WALL
         # Also explore these walls so they're visible
-        self.explored.add((13, -1))
-        self.explored.add((13, 0))
-        self.explored.add((13, 1))
-        self.explored.add((13, 2))
+        self.explored.add((11, -1))
+        self.explored.add((11, 0))
+        self.explored.add((11, 1))
+        self.explored.add((11, 2))
+        
+        # Remove walls at x=8 that block North/South passages from T-junction
+        # These are the last walls of the starting passage at (8,-1) and (8,2)
+        if (8, -1) in self.grid and self.grid[(8, -1)] == TileType.WALL:
+            del self.grid[(8, -1)]
+            self.explored.discard((8, -1))
+        if (8, 2) in self.grid and self.grid[(8, 2)] == TileType.WALL:
+            del self.grid[(8, 2)]
+            self.explored.discard((8, 2))
+        
+        # Side walls further out for North/South passages (3 tiles from junction)
+        # North walls at y=-3
+        self.grid[(9, -3)] = TileType.WALL
+        self.grid[(10, -3)] = TileType.WALL
+        self.explored.add((9, -3))
+        self.explored.add((10, -3))
+        # South walls at y=4  
+        self.grid[(9, 4)] = TileType.WALL
+        self.grid[(10, 4)] = TileType.WALL
+        self.explored.add((9, 4))
+        self.explored.add((10, 4))
         
         # Set up pending junction for North and South passages
         # The reference point is (9,0) - hero triggers when stepping on any of the 2x2 tiles
