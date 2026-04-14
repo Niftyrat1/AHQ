@@ -89,6 +89,7 @@ def generate_passage_from(
                 if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
                     # Wandering monsters - mark this tile for encounter
                     dungeon.wandering_monsters.add((current_x, current_y))
+                    dungeon._log(f"    Wandering monsters placed at ({current_x}, {current_y})")
                 elif 16 <= feature_roll <= 19:
                     # 1 door on side - check if position is suitable (not at junction)
                     side_dir = _get_perpendicular(direction)
