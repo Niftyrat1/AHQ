@@ -148,46 +148,9 @@ class Dungeon:
         if not hasattr(self, 'pending_junctions'):
             return False
         
-        # Special case: starting T-junction - passages pre-generated, just explore
+        # Not a pending junction - just do normal exploration
         if pos not in self.pending_junctions:
-            existing_exits = []
-            for direction in [(0, -1), (0, 1), (1, 0), (-1, 0)]:
-                check_x = x + direction[0]
-                check_y = y + direction[1]
-                tile = self.get_tile(check_x, check_y)
-                if tile == TileType.FLOOR:
-                    existing_exits.append(direction)
-            
-            if existing_exits:
-                self._log(f"check_and_generate_junction at {pos}: exploring {len(existing_exits)} existing passages")
-                for direction in existing_exits:
-                    curr_x, curr_y = x, y
-                    for _ in range(30):  # Increased range for longer passages
-                        curr_x += direction[0]
-                        curr_y += direction[1]
-                        tile = self.get_tile(curr_x, curr_y)
-                        # Stop at unexplored or actual walls (not passage ends)
-                        if tile == TileType.UNEXPLORED:
-                            break
-                        if tile == TileType.WALL:
-                            # Add the wall and stop
-                            self.explored.add((curr_x, curr_y))
-                            break
-                        # Explore this tile
-                        self.explored.add((curr_x, curr_y))
-                        # Explore all adjacent tiles (including walls, passage ends, etc.)
-                        for dx in [-1, 0, 1]:
-                            for dy in [-1, 0, 1]:
-                                adj_pos = (curr_x + dx, curr_y + dy)
-                                adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
-                                if adj_tile != TileType.UNEXPLORED and adj_pos not in self.explored:
-                                    self.explored.add(adj_pos)
-                        # Stop after exploring passage end or stairs (dead end)
-                        if tile in (TileType.PASSAGE_END, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
-                            break
-                self._explore_from(x, y)
-                return True
-            
+            self._explore_from(x, y)
             return False
         
         exits = self.pending_junctions[pos]
