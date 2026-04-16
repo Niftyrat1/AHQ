@@ -46,7 +46,7 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     elif direction == (0, 1):  # South
         current_x, current_y = x + 1, y + 1
     elif direction == (1, 0):  # East
-        current_x, current_y = x + 1, y  # track right tile (x+1)
+        current_x, current_y = x + 1, y + 1  # track right tile (x+1), y+1 to align 2x2
     else:  # West
         current_x, current_y = x, y  # track left tile (x)
     last_left = None
@@ -58,12 +58,15 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             current_y += direction[1]
             
             # Calculate left and right tile positions
-            if direction in [(0, -1), (0, 1)]:  # North/South
+            if direction in [(0, -1), (0, 1)]:  # North/South - left/right are side by side (x +/- 1)
                 left_x, left_y = current_x - 1, current_y
                 right_x, right_y = current_x, current_y
-            else:  # East/West
+            elif direction == (1, 0):  # East - left/right are stacked vertically (y +/- 1)
                 left_x, left_y = current_x, current_y - 1
                 right_x, right_y = current_x, current_y
+            else:  # West - left/right are stacked vertically (y +/- 1), but need to track from left tile
+                left_x, left_y = current_x, current_y
+                right_x, right_y = current_x, current_y + 1
             
             # Place floor tiles
             dungeon.grid[(left_x, left_y)] = dungeon.TileType.FLOOR
