@@ -212,12 +212,28 @@ class Dungeon:
         
         self._log(f"  Found junction at exact position {pos}")
         
-        # pending_junctions[pos] = (source_direction, row, exits)
-        source_dir, row, exits = self.pending_junctions[pos]
+        # Handle backward compatibility for different pending_junctions formats
+        junction_data = self.pending_junctions[pos]
+        if isinstance(junction_data, tuple) and len(junction_data) == 3:
+            # New format: (source_dir, row, exits)
+            source_dir, row, exits = junction_data
+        elif isinstance(junction_data, list):
+            # Old format: [exit1, exit2, ...]
+            source_dir, row, exits = (0, 0), 1, junction_data
+        else:
+            # Unknown format, use defaults
+            source_dir, row, exits = (0, 0), 1, []
         
         # Remove all tiles that share the same exits as this junction
         # Find all positions with matching exits and remove them all at once
-        tiles_to_remove = [p for p, e in self.pending_junctions.items() if e[2] == exits]
+        def _get_exits(junction_entry):
+            if isinstance(junction_entry, tuple) and len(junction_entry) == 3:
+                return junction_entry[2]
+            elif isinstance(junction_entry, list):
+                return junction_entry
+            return []
+        
+        tiles_to_remove = [p for p, e in self.pending_junctions.items() if _get_exits(e) == exits]
         for jt in tiles_to_remove:
             del self.pending_junctions[jt]
         
