@@ -173,6 +173,26 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     # Explore the 2x2 turn area
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
+    # Place side walls along the 2x2 turn area to guide the turn direction
+    # Calculate perpendicular offset for the turn direction
+    if turn_dir in [(0, -1), (0, 1)]:  # Turning North or South
+        # Side walls are at x +/- 1
+        turn_side_offset = (1, 0) if turn_dir == (0, -1) else (-1, 0)  # Opposite of turn
+    else:  # Turning East or West
+        turn_side_offset = (0, 1) if turn_dir == (1, 0) else (0, -1)  # Opposite of turn
+    
+    # Place side walls on the outer edge of the turn (opposite to turn direction)
+    for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
+        if direction in [(0, -1), (0, 1)]:  # Vertical original passage
+            # For vertical passage turning horizontal
+            outer_wall = (pos[0] + turn_side_offset[0], pos[1] + turn_side_offset[1])
+        else:  # Horizontal original passage
+            # For horizontal passage turning vertical  
+            outer_wall = (pos[0] + turn_side_offset[0], pos[1] + turn_side_offset[1])
+        dungeon.grid[outer_wall] = dungeon.TileType.WALL
+        dungeon.explored.add(outer_wall)
+        dungeon._log(f"    Turn side wall at {outer_wall}")
+    
     # Place capping walls to block forward direction (one step beyond the 2x2)
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
