@@ -277,8 +277,11 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
         dungeon.explored.add(pos)
     
     # Set pending only for forward tiles (the turn extension)
-    for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
-        dungeon.pending_junctions[pos] = [turn_dir]
+    # Use new tuple format: (source_direction, row, exits)
+    dungeon.pending_junctions[forward1_left] = (direction, 1, [turn_dir])
+    dungeon.pending_junctions[forward1_right] = (direction, 1, [turn_dir])
+    dungeon.pending_junctions[forward2_left] = (direction, 2, [turn_dir])
+    dungeon.pending_junctions[forward2_right] = (direction, 2, [turn_dir])
 
 
 def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_type,
