@@ -104,8 +104,13 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
     # Capping walls one step beyond the 2x2 passage end
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
-    side_left = (wall_left[0] - 1, wall_left[1])
-    side_right = (wall_right[0] + 1, wall_right[1])
+    # Side walls adjacent to capping walls (perpendicular to passage direction)
+    if direction in [(0, -1), (0, 1)]:  # North/South - side walls at x-1 and x+1
+        side_left = (wall_left[0] - 1, wall_left[1])
+        side_right = (wall_right[0] + 1, wall_right[1])
+    else:  # East/West - side walls at y-1 and y+1
+        side_left = (wall_left[0], wall_left[1] - 1)
+        side_right = (wall_right[0], wall_right[1] + 1)
     
     dungeon._log(f"    Placing capping walls at {wall_left} and {wall_right}")
     dungeon._log(f"    Placing side walls at {side_left} and {side_right}")
@@ -158,8 +163,13 @@ def _generate_dead_end(dungeon: "Dungeon", left_pos, right_pos, direction,
     # Capping walls one step beyond the 2x2 dead end
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
-    side_left = (wall_left[0] - 1, wall_left[1])
-    side_right = (wall_right[0] + 1, wall_right[1])
+    # Side walls adjacent to capping walls (perpendicular to passage direction)
+    if direction in [(0, -1), (0, 1)]:  # North/South - side walls at x-1 and x+1
+        side_left = (wall_left[0] - 1, wall_left[1])
+        side_right = (wall_right[0] + 1, wall_right[1])
+    else:  # East/West - side walls at y-1 and y+1
+        side_left = (wall_left[0], wall_left[1] - 1)
+        side_right = (wall_right[0], wall_right[1] + 1)
     
     dungeon._log(f"    Placing capping walls at {wall_left} and {wall_right}")
     dungeon._log(f"    Placing side walls at {side_left} and {side_right}")
@@ -221,8 +231,13 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     # Place capping walls to block forward direction (one step beyond the 2x2)
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
-    side_left = (wall_left[0] - 1, wall_left[1])
-    side_right = (wall_right[0] + 1, wall_right[1])
+    # Side walls adjacent to capping walls (perpendicular to passage direction)
+    if direction in [(0, -1), (0, 1)]:  # North/South - side walls at x-1 and x+1
+        side_left = (wall_left[0] - 1, wall_left[1])
+        side_right = (wall_right[0] + 1, wall_right[1])
+    else:  # East/West - side walls at y-1 and y+1
+        side_left = (wall_left[0], wall_left[1] - 1)
+        side_right = (wall_right[0], wall_right[1] + 1)
     
     dungeon._log(f"    {turn_type.capitalize()} turn capping walls at {wall_left}, {wall_right}, "
                  f"sides {side_left}, {side_right}")

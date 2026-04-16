@@ -48,8 +48,7 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     elif direction == (1, 0):  # East
         current_x, current_y = x + 1, y  # track right tile (x+1)
     else:  # West
-        current_x, current_y = x, y + 1
-    
+        current_x, current_y = x, y  # track left tile (x)
     last_left = None
     last_right = None
     
