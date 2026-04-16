@@ -207,12 +207,11 @@ class Dungeon:
         
         exits = self.pending_junctions[pos]
         
-        # Remove all 4 positions of the 2x2 junction (not just the triggered one)
-        # This prevents multiple generations from the same junction
-        junction_tiles = [(9, 0), (9, 1), (10, 0), (10, 1)]
-        for jt in junction_tiles:
-            if jt in self.pending_junctions:
-                del self.pending_junctions[jt]
+        # Remove all tiles that share the same exits as this junction
+        # Find all positions with matching exits and remove them all at once
+        tiles_to_remove = [p for p, e in self.pending_junctions.items() if e == exits]
+        for jt in tiles_to_remove:
+            del self.pending_junctions[jt]
         
         if len(exits) == 1:
             junc_type = "Turn/Continue"
