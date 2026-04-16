@@ -25,7 +25,7 @@ class Dungeon:
         self.debug_log = debug_log
         self.treasure: Dict[Tuple[int, int], bool] = {}
         self.hero_start = (0, 0)
-        self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
+        self.pending_junctions: Dict[Tuple[int, int], Tuple[Tuple[int, int], int, List[Tuple[int, int]]]] = {}
         self.rooms: List[Set[Tuple[int, int]]] = []
         
         self._create_starting_area()
@@ -79,6 +79,12 @@ class Dungeon:
         self.explored.add((0, 2))
         self.explored.add((1, 2))
         
+        # West wall to complete starting area
+        self.grid[(-1, -1)] = TileType.WALL
+        self.grid[(-1, 2)] = TileType.WALL
+        self.explored.add((-1, -1))
+        self.explored.add((-1, 2))
+        
         # 2x2 T-junction at (9,0)-(10,1) - this is the junction floor
         self.grid[(9, 0)] = TileType.FLOOR
         self.grid[(9, 1)] = TileType.FLOOR
@@ -102,9 +108,10 @@ class Dungeon:
         
         # Set up pending junction for North and South passages
         # All 4 tiles of the 2x2 junction trigger the same passages
+        # Store as (source_direction, row, exits)
         for jx in [9, 10]:
             for jy in [0, 1]:
-                self.pending_junctions[(jx, jy)] = [(0, -1), (0, 1)]
+                self.pending_junctions[(jx, jy)] = ((0, -1), 1, [(0, -1), (0, 1)])
         
     
     def get_tile(self, x: int, y: int) -> TileType:
@@ -205,11 +212,12 @@ class Dungeon:
         
         self._log(f"  Found junction at exact position {pos}")
         
-        exits = self.pending_junctions[pos]
+        # pending_junctions[pos] = (source_direction, row, exits)
+        source_dir, row, exits = self.pending_junctions[pos]
         
         # Remove all tiles that share the same exits as this junction
         # Find all positions with matching exits and remove them all at once
-        tiles_to_remove = [p for p, e in self.pending_junctions.items() if e == exits]
+        tiles_to_remove = [p for p, e in self.pending_junctions.items() if e[2] == exits]
         for jt in tiles_to_remove:
             del self.pending_junctions[jt]
         
@@ -250,7 +258,8 @@ class Dungeon:
         all_passage_tiles = []
         for direction in exits:
             self._log(f"  Generating passage from {pos} in direction {direction}")
-            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction)
+            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction, 
+                                                  from_room=False, row=row, source_dir=source_dir)
             self._log(f"  Generated {len(passage_tiles)} tiles")
             all_passage_tiles.extend(passage_tiles)
 
@@ -508,9 +517,13 @@ class Dungeon:
     def to_dict(self) -> dict:
         """Convert dungeon to dictionary for saving."""
         pending = {}
-        for pos, directions in self.pending_junctions.items():
+        for pos, (direction, row, exits) in self.pending_junctions.items():
             key = f"{pos[0]},{pos[1]}"
-            pending[key] = [f"{d[0]},{d[1]}" for d in directions]
+            pending[key] = {
+                "direction": f"{direction[0]},{direction[1]}",
+                "row": row,
+                "exits": [f"{e[0]},{e[1]}" for e in exits]
+            }
         
         return {
             "size": self.size,
@@ -561,9 +574,18 @@ class Dungeon:
             dungeon.treasure[(x, y)] = val
         
         dungeon.pending_junctions = {}
-        for key, directions in data.get("pending_junctions", {}).items():
+        for key, junction_data in data.get("pending_junctions", {}).items():
             x, y = map(int, key.split(","))
-            dungeon.pending_junctions[(x, y)] = [tuple(map(int, d.split(","))) for d in directions]
+            if isinstance(junction_data, dict):
+                # New format: {"direction": "dx,dy", "row": n, "exits": [...]}
+                dir_str = junction_data["direction"]
+                direction = tuple(map(int, dir_str.split(",")))
+                row = junction_data["row"]
+                exits = [tuple(map(int, e.split(","))) for e in junction_data["exits"]]
+                dungeon.pending_junctions[(x, y)] = (direction, row, exits)
+            else:
+                # Old format: list of exit directions (for backward compatibility)
+                dungeon.pending_junctions[(x, y)] = ((0, 0), 1, [tuple(map(int, d.split(","))) for d in junction_data])
         
         dungeon.hero_start = tuple(data.get("hero_start", (0, 0)))
         

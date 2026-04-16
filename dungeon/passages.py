@@ -13,13 +13,18 @@ if TYPE_CHECKING:
 
 
 def generate_passage_from(dungeon: "Dungeon", x: int, y: int, 
-                          direction: Tuple[int, int], from_room: bool = False):
+                          direction: Tuple[int, int], from_room: bool = False,
+                          row: int = 1, source_dir: Tuple[int, int] = (0, 0)):
     """Generate a passage from a junction tile.
     
     Creates 2-wide passages with 1-3 sections (5-15 tiles).
     Each section is 5 tiles long.
     Places walls along passage edges.
     Resolves passage end with 2D12 roll.
+    
+    Args:
+        row: Which row of the T-junction (1 or 2). Row 1 is closer to the original passage.
+        source_dir: The direction of the source passage that created this junction.
     """
     # Roll for passage length (1-3 sections, each 5 tiles)
     roll = random.randint(1, 12)
@@ -46,7 +51,13 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     elif direction == (0, 1):  # South
         current_x, current_y = x + 1, y + 1
     elif direction == (1, 0):  # East
-        current_x, current_y = x + 1, y + 1  # track right tile (x+1), y+1 to align 2x2
+        # For East from T-junction, offset depends on source direction and row
+        # North source: offset 0 (passage at same y as junction)
+        # South source: offset 1 if row 1 (passage one y lower)
+        offset = 0
+        if source_dir == (0, 1) and row == 1:  # South source, row 1
+            offset = 1
+        current_x, current_y = x + 1, y + offset  # track right tile (x+1)
     else:  # West
         current_x, current_y = x, y  # track left tile (x)
     last_left = None
