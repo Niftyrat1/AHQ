@@ -121,10 +121,10 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
     # Row 1 = forward1 (closer to passage for North, further for South)
     # Row 2 = forward2 (further from passage for North, closer for South)
     perp_dirs = _get_both_perpendicular(direction)
-    dungeon.pending_junctions[forward1_left] = (direction, 1, list(perp_dirs))
-    dungeon.pending_junctions[forward1_right] = (direction, 1, list(perp_dirs))
-    dungeon.pending_junctions[forward2_left] = (direction, 2, list(perp_dirs))
-    dungeon.pending_junctions[forward2_right] = (direction, 2, list(perp_dirs))
+    dungeon.pending_junctions[forward1_left] = (direction, 1, list(perp_dirs), False)
+    dungeon.pending_junctions[forward1_right] = (direction, 1, list(perp_dirs), False)
+    dungeon.pending_junctions[forward2_left] = (direction, 2, list(perp_dirs), False)
+    dungeon.pending_junctions[forward2_right] = (direction, 2, list(perp_dirs), False)
     dungeon._log(f"    T-junction pending set for: {forward1_left}, {forward1_right}, {forward2_left}, {forward2_right}")
     
     # Explore the 2x2 passage end area and capping walls
@@ -277,11 +277,11 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
         dungeon.explored.add(pos)
     
     # Set pending only for forward tiles (the turn extension)
-    # Use new tuple format: (source_direction, row, exits)
-    dungeon.pending_junctions[forward1_left] = (direction, 1, [turn_dir])
-    dungeon.pending_junctions[forward1_right] = (direction, 1, [turn_dir])
-    dungeon.pending_junctions[forward2_left] = (direction, 2, [turn_dir])
-    dungeon.pending_junctions[forward2_right] = (direction, 2, [turn_dir])
+    # Use new tuple format: (source_direction, row, exits, from_turn)
+    dungeon.pending_junctions[forward1_left] = (direction, 1, [turn_dir], True)
+    dungeon.pending_junctions[forward1_right] = (direction, 1, [turn_dir], True)
+    dungeon.pending_junctions[forward2_left] = (direction, 2, [turn_dir], True)
+    dungeon.pending_junctions[forward2_right] = (direction, 2, [turn_dir], True)
 
 
 def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_type,
