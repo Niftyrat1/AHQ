@@ -54,6 +54,7 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     last_a = last_b = None
 
     collision_detected = False
+    tiles_placed = 0
     for section_idx in range(sections):
         if collision_detected:
             break
@@ -64,18 +65,20 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             next_b_x = track_b_x + direction[0]
             next_b_y = track_b_y + direction[1]
 
-            # Check for collision with existing tiles (floor, wall, passage end, etc.)
-            tile_a = dungeon.grid.get((next_a_x, next_a_y), dungeon.TileType.UNEXPLORED)
-            tile_b = dungeon.grid.get((next_b_x, next_b_y), dungeon.TileType.UNEXPLORED)
+            # Check for collision with existing tiles (only after placing first tiles)
+            # First tiles may overlap with existing passage floor - that's OK
+            if tiles_placed >= 2:
+                tile_a = dungeon.grid.get((next_a_x, next_a_y), dungeon.TileType.UNEXPLORED)
+                tile_b = dungeon.grid.get((next_b_x, next_b_y), dungeon.TileType.UNEXPLORED)
 
-            # Stop if we would overlap with anything other than unexplored
-            collision_tiles = (dungeon.TileType.FLOOR, dungeon.TileType.PASSAGE_END,
-                               dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
-                               dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
-            if tile_a in collision_tiles or tile_b in collision_tiles:
-                dungeon._log(f"    Collision detected at ({next_a_x},{next_a_y})={tile_a} or ({next_b_x},{next_b_y})={tile_b}, stopping passage")
-                collision_detected = True
-                break
+                # Stop if we would overlap with anything other than unexplored
+                collision_tiles = (dungeon.TileType.FLOOR, dungeon.TileType.PASSAGE_END,
+                                   dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
+                                   dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
+                if tile_a in collision_tiles or tile_b in collision_tiles:
+                    dungeon._log(f"    Collision detected at ({next_a_x},{next_a_y})={tile_a} or ({next_b_x},{next_b_y})={tile_b}, stopping passage")
+                    collision_detected = True
+                    break
 
             # Step both tracks forward by direction
             track_a_x, track_a_y = next_a_x, next_a_y
@@ -86,6 +89,7 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
             passage_tiles.append((track_a_x, track_a_y))
             passage_tiles.append((track_b_x, track_b_y))
+            tiles_placed += 2
 
             # Track last positions for passage end calculation
             last_a = (track_a_x, track_a_y)
@@ -100,6 +104,11 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
                 dungeon.grid[wall_a] = dungeon.TileType.WALL
             if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
                 dungeon.grid[wall_b] = dungeon.TileType.WALL
+
+    # Check if we actually generated any tiles (collision may have stopped us immediately)
+    if not passage_tiles or last_a is None or last_b is None:
+        dungeon._log(f"    No tiles generated (collision at start), aborting passage")
+        return passage_tiles
 
     dungeon._log(f"    Passage ends at {last_a} and {last_b}, roll: {roll}")
 
