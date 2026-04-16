@@ -53,13 +53,33 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
 
     last_a = last_b = None
 
+    collision_detected = False
     for section_idx in range(sections):
+        if collision_detected:
+            break
         for tile_idx in range(5):
+            # Calculate next positions
+            next_a_x = track_a_x + direction[0]
+            next_a_y = track_a_y + direction[1]
+            next_b_x = track_b_x + direction[0]
+            next_b_y = track_b_y + direction[1]
+
+            # Check for collision with existing tiles (floor, wall, passage end, etc.)
+            tile_a = dungeon.grid.get((next_a_x, next_a_y), dungeon.TileType.UNEXPLORED)
+            tile_b = dungeon.grid.get((next_b_x, next_b_y), dungeon.TileType.UNEXPLORED)
+
+            # Stop if we would overlap with anything other than unexplored
+            collision_tiles = (dungeon.TileType.FLOOR, dungeon.TileType.PASSAGE_END,
+                               dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
+                               dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
+            if tile_a in collision_tiles or tile_b in collision_tiles:
+                dungeon._log(f"    Collision detected at ({next_a_x},{next_a_y})={tile_a} or ({next_b_x},{next_b_y})={tile_b}, stopping passage")
+                collision_detected = True
+                break
+
             # Step both tracks forward by direction
-            track_a_x += direction[0]
-            track_a_y += direction[1]
-            track_b_x += direction[0]
-            track_b_y += direction[1]
+            track_a_x, track_a_y = next_a_x, next_a_y
+            track_b_x, track_b_y = next_b_x, next_b_y
 
             # Place floor tiles for both tracks
             dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
