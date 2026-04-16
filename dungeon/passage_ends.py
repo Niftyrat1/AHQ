@@ -209,13 +209,24 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
     # Place side walls along the 2x2 turn area to guide the turn direction
-    # Calculate perpendicular offset for the turn direction
-    if direction in [(0, -1), (0, 1)]:  # Vertical original passage turning horizontal
-        # Side walls are at y +/- 1 (perpendicular to vertical)
-        turn_side_offset = (0, 1) if turn_dir == (1, 0) else (0, -1)  # Opposite of turn direction
-    else:  # Horizontal original passage turning vertical
-        # Side walls are at x +/- 1 (perpendicular to horizontal)
-        turn_side_offset = (1, 0) if turn_dir == (0, -1) else (-1, 0)  # Opposite of turn direction
+    # For right/left turns, we need to wall off the opposite side to force the turn
+    # Direction -> turn_dir mapping:
+    #   North (0,-1): right turn -> East (1,0), left turn -> West (-1,0)
+    #   South (0,1):  right turn -> West (-1,0), left turn -> East (1,0)
+    #   East (1,0):   right turn -> South (0,1), left turn -> North (0,-1)
+    #   West (-1,0):  right turn -> North (0,-1), left turn -> South (0,1)
+    if direction == (0, -1):  # North passage turning East/West
+        # Wall on opposite side (West for right/East, East for left/West)
+        turn_side_offset = (-1, 0) if turn_dir == (1, 0) else (1, 0)
+    elif direction == (0, 1):  # South passage turning West/East
+        # Wall on opposite side (East for right/West, West for left/East)
+        turn_side_offset = (1, 0) if turn_dir == (-1, 0) else (-1, 0)
+    elif direction == (1, 0):  # East passage turning South/North
+        # Wall on opposite side (North for right/South, South for left/North)
+        turn_side_offset = (0, -1) if turn_dir == (0, 1) else (0, 1)
+    else:  # West (-1,0) passage turning North/South
+        # Wall on opposite side (South for right/North, North for left/South)
+        turn_side_offset = (0, 1) if turn_dir == (0, -1) else (0, -1)
     
     # Place side walls on the outer edge of the turn (opposite to turn direction)
     for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
