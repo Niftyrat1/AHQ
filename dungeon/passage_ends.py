@@ -208,16 +208,35 @@ def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_
     # Explore the 2x2 stairs
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
+    # Calculate side walls adjacent to the 2x2 stairs (at forward1 and forward2)
+    # For vertical passages: side walls are x-1 and x+1
+    # For horizontal passages: side walls are y-1 and y+1
+    if direction in [(0, -1), (0, 1)]:  # North/South
+        f1_side_left = (forward1_left[0] - 1, forward1_left[1])
+        f1_side_right = (forward1_right[0] + 1, forward1_right[1])
+        f2_side_left = (forward2_left[0] - 1, forward2_left[1])
+        f2_side_right = (forward2_right[0] + 1, forward2_right[1])
+    else:  # East/West
+        f1_side_left = (forward1_left[0], forward1_left[1] - 1)
+        f1_side_right = (forward1_right[0], forward1_right[1] + 1)
+        f2_side_left = (forward2_left[0], forward2_left[1] - 1)
+        f2_side_right = (forward2_right[0], forward2_right[1] + 1)
+    
+    # Place side walls alongside the 2x2 stairs
+    for pos in [f1_side_left, f1_side_right, f2_side_left, f2_side_right]:
+        dungeon.grid[pos] = dungeon.TileType.WALL
+        dungeon.explored.add(pos)
+    dungeon._log(f"    Stairs {stairs_type} side walls at {f1_side_left}, {f1_side_right}, "
+                 f"{f2_side_left}, {f2_side_right}")
+    
     # Capping walls one step beyond the 2x2 stairs
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
-    side_left = (wall_left[0] - 1, wall_left[1])
-    side_right = (wall_right[0] + 1, wall_right[1])
+    cap_side_left = (wall_left[0] - 1, wall_left[1]) if direction in [(0, -1), (0, 1)] else (wall_left[0], wall_left[1] - 1)
+    cap_side_right = (wall_right[0] + 1, wall_right[1]) if direction in [(0, -1), (0, 1)] else (wall_right[0], wall_right[1] + 1)
     
     dungeon._log(f"    Stairs {stairs_type} capping at {wall_left}, {wall_right}, "
-                 f"sides {side_left}, {side_right}")
-    for pos in [wall_left, wall_right, side_left, side_right]:
+                 f"sides {cap_side_left}, {cap_side_right}")
+    for pos in [wall_left, wall_right, cap_side_left, cap_side_right]:
         dungeon.grid[pos] = dungeon.TileType.WALL
-    
-    for pos in [wall_left, wall_right, side_left, side_right]:
         dungeon.explored.add(pos)
