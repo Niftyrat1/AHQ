@@ -68,17 +68,17 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
         # For East from turn: no offset (passage aligns with tile)
         # For East from T-junction: offset depends on source direction and row
         offset = 0
-        if not from_turn and source_dir == (0, 1) and row == 1:
-            # T-junction from South, row 1: passage one tile lower
-            offset = 1
+        if not from_turn and source_dir == (0, 1) and row == 2:
+            # T-junction from South, row 2: passage one tile higher (to align with row 1)
+            offset = -1
         current_x, current_y = x + 1, y + offset  # track right tile (x+1)
     else:  # West
         # For West from turn: no offset (passage aligns with tile)
         # For West from T-junction: offset depends on source direction and row
         offset = 0
-        if not from_turn and source_dir == (0, 1) and row == 1:
-            # T-junction from South, row 1: passage one tile lower
-            offset = 1
+        if not from_turn and source_dir == (0, 1) and row == 2:
+            # T-junction from South, row 2: passage one tile higher (to align with row 1)
+            offset = -1
         current_x, current_y = x, y + offset  # track left tile (x)
     last_left = None
     last_right = None
