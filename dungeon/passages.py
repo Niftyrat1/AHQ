@@ -41,13 +41,13 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     if direction in [(0, -1), (0, 1)]:  # North or South
         # Track A at x, Track B at x+1, both step in y direction
         track_a_x, track_b_x = x, x + 1
-        track_a_y = track_b_y = y + direction[1]  # First step in direction
+        track_a_y = track_b_y = y  # Start AT junction, loop steps first
         wall_offset_a = (-1, 0)  # Left of track A
         wall_offset_b = (1, 0)   # Right of track B
     else:  # East or West
         # Track A at y, Track B at y+1, both step in x direction
         track_a_y, track_b_y = y, y + 1
-        track_a_x = track_b_x = x + direction[0]  # First step in direction
+        track_a_x = track_b_x = x  # Start AT junction, loop steps first
         wall_offset_a = (0, -1)  # Above track A
         wall_offset_b = (0, 1)   # Below track B
 
