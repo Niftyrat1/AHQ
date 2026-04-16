@@ -208,6 +208,15 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
         dungeon.grid[pos] = dungeon.TileType.FLOOR
     
+    # For horizontal passages turning vertical, fill the gap between left and right rows
+    if direction in [(1, 0), (-1, 0)]:  # East or West passage turning North/South
+        # Fill middle tiles to complete the 2-wide passage
+        middle1 = (forward1_left[0], forward1_left[1] + 1)  # Between forward1_left and forward1_right
+        middle2 = (forward2_left[0], forward2_left[1] + 1)  # Between forward2_left and forward2_right
+        dungeon.grid[middle1] = dungeon.TileType.FLOOR
+        dungeon.grid[middle2] = dungeon.TileType.FLOOR
+        dungeon._log(f"    Filled middle tiles: {middle1}, {middle2}")
+    
     # Explore the 2x2 turn area (capping walls will be added after placement)
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
