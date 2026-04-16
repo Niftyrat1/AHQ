@@ -100,30 +100,11 @@ class Dungeon:
         self.explored.add((11, 1))
         self.explored.add((11, 2))
         
-        # Remove walls at x=8 that block North/South passages from T-junction
-        # These are the last walls of the starting passage at (8,-1) and (8,2)
-        if (8, -1) in self.grid and self.grid[(8, -1)] == TileType.WALL:
-            del self.grid[(8, -1)]
-            self.explored.discard((8, -1))
-        if (8, 2) in self.grid and self.grid[(8, 2)] == TileType.WALL:
-            del self.grid[(8, 2)]
-            self.explored.discard((8, 2))
-        
-        # Side walls further out for North/South passages (3 tiles from junction)
-        # North walls at y=-3
-        self.grid[(9, -3)] = TileType.WALL
-        self.grid[(10, -3)] = TileType.WALL
-        self.explored.add((9, -3))
-        self.explored.add((10, -3))
-        # South walls at y=4  
-        self.grid[(9, 4)] = TileType.WALL
-        self.grid[(10, 4)] = TileType.WALL
-        self.explored.add((9, 4))
-        self.explored.add((10, 4))
-        
         # Set up pending junction for North and South passages
-        # The reference point is (9,0) - hero triggers when stepping on any of the 2x2 tiles
-        self.pending_junctions[(9, 0)] = [(0, -1), (0, 1)]
+        # All 4 tiles of the 2x2 junction trigger the same passages
+        for jx in [9, 10]:
+            for jy in [0, 1]:
+                self.pending_junctions[(jx, jy)] = [(0, -1), (0, 1)]
         
     
     def get_tile(self, x: int, y: int) -> TileType:
@@ -204,7 +185,8 @@ class Dungeon:
                         break
     
     def check_and_generate_junction(self, x: int, y: int) -> bool:
-        """Check if position is a pending junction and generate/explore its exits."""
+        """Check if position is a pending junction and generate/explore its exits.
+        Only triggers when stepping on the exact 2x2 junction tiles."""
         from .generator import generate_passage_from
         
         pos = (x, y)
@@ -215,31 +197,23 @@ class Dungeon:
             self._log(f"  No pending_junctions attribute")
             return False
         
-        # Check if this position or any adjacent position is a pending junction
-        # (needed for 2x2 junctions where hero can step on any of the 4 tiles)
-        junction_pos = None
-        if pos in self.pending_junctions:
-            junction_pos = pos
-            self._log(f"  Found junction at exact position {pos}")
-        else:
-            # Check adjacent tiles for junction reference
-            for dx, dy in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]:
-                check_pos = (x + dx, y + dy)
-                if check_pos in self.pending_junctions:
-                    junction_pos = check_pos
-                    self._log(f"  Found junction at adjacent position {check_pos}")
-                    break
-        
-        # Not a pending junction - just do normal exploration
-        if junction_pos is None:
-            self._log(f"  No junction found, doing normal exploration")
+        # Only trigger on exact junction positions (the 2x2 floor tiles)
+        if pos not in self.pending_junctions:
+            self._log(f"  No junction at exact position, doing normal exploration")
             self._explore_from(x, y)
             return False
         
-        # Use the found junction position
-        pos = junction_pos
+        self._log(f"  Found junction at exact position {pos}")
         
         exits = self.pending_junctions[pos]
+        
+        # Remove all 4 positions of the 2x2 junction (not just the triggered one)
+        # This prevents multiple generations from the same junction
+        junction_tiles = [(9, 0), (9, 1), (10, 0), (10, 1)]
+        for jt in junction_tiles:
+            if jt in self.pending_junctions:
+                del self.pending_junctions[jt]
+        
         if len(exits) == 1:
             junc_type = "Turn/Continue"
         elif len(exits) == 2:
@@ -269,17 +243,15 @@ class Dungeon:
                 wall_y = y + direction[1] + offset[1]
                 tile = self.get_tile(wall_x, wall_y)
                 if tile == TileType.WALL:
-                    is_room_wall = self._is_room_wall(wall_x, wall_y)
-                    if not is_room_wall:
-                        del self.grid[(wall_x, wall_y)]
+                    # Always remove passage-blocking walls (not room walls)
+                    del self.grid[(wall_x, wall_y)]
         
-        exits = self.pending_junctions.pop(pos)
         self._log(f"  Generating passages for exits: {exits}")
 
         all_passage_tiles = []
         for direction in exits:
             self._log(f"  Generating passage from {pos} in direction {direction}")
-            passage_tiles = generate_passage_from(self, x, y, direction)
+            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction)
             self._log(f"  Generated {len(passage_tiles)} tiles")
             all_passage_tiles.extend(passage_tiles)
 
@@ -292,6 +264,84 @@ class Dungeon:
                     adj_tile = self.get_tile(adj_pos[0], adj_pos[1])
                     if adj_tile != TileType.UNEXPLORED and adj_pos not in self.explored:
                         self.explored.add(adj_pos)
+        
+        # Explore the 2x2 areas at the ends of each passage (turns, stairs, T-junctions)
+        # These are the last tiles of each passage plus their forward row
+        for direction in exits:
+            if direction in [(0, -1), (0, 1)]:  # North/South passage
+                # Find the furthest tiles in this direction for each passage
+                # Group tiles by their x coordinate
+                x_groups = {}
+                for (tx, ty) in all_passage_tiles:
+                    if tx not in x_groups:
+                        x_groups[tx] = []
+                    x_groups[tx].append(ty)
+                
+                # For each x group, find the min/max y (furthest in direction)
+                for tx, y_list in x_groups.items():
+                    if direction == (0, -1):  # North - smallest y
+                        end_y = min(y_list)
+                    else:  # South - largest y
+                        end_y = max(y_list)
+                    
+                    # Explore the 2x2 area: (tx-1, end_y), (tx, end_y) and forward row
+                    for jx in [tx - 1, tx]:
+                        for jy in [end_y, end_y + direction[1]]:
+                            if self.get_tile(jx, jy) != TileType.UNEXPLORED:
+                                self.explored.add((jx, jy))
+                            # Explore adjacent walls
+                            for wx, wy in [(jx-1, jy), (jx+1, jy), (jx, jy-1), (jx, jy+1)]:
+                                if self.get_tile(wx, wy) == TileType.WALL:
+                                    self.explored.add((wx, wy))
+            
+            else:  # East/West passage
+                # Group tiles by their y coordinate
+                y_groups = {}
+                for (tx, ty) in all_passage_tiles:
+                    if ty not in y_groups:
+                        y_groups[ty] = []
+                    y_groups[ty].append(tx)
+                
+                # For each y group, find the min/max x (furthest in direction)
+                for ty, x_list in y_groups.items():
+                    if direction == (-1, 0):  # West - smallest x
+                        end_x = min(x_list)
+                    else:  # East - largest x
+                        end_x = max(x_list)
+                    
+                    # Explore the 2x2 area: (end_x, ty-1), (end_x, ty) and forward row
+                    for jx in [end_x, end_x + direction[0]]:
+                        for jy in [ty - 1, ty]:
+                            if self.get_tile(jx, jy) != TileType.UNEXPLORED:
+                                self.explored.add((jx, jy))
+                            # Explore adjacent walls
+                            for wx, wy in [(jx-1, jy), (jx+1, jy), (jx, jy-1), (jx, jy+1)]:
+                                if self.get_tile(wx, wy) == TileType.WALL:
+                                    self.explored.add((wx, wy))
+        
+        # Also explore the entire 2x2 junction area and any walls placed at passage ends
+        # This ensures T-junctions, stairs, and dead ends are fully visible (2x2)
+        for direction in exits:
+            if direction in [(0, -1), (0, 1)]:  # North/South
+                # The 2x2 area spans x-1 to x, and y to y+dir
+                for jx in [pos[0] - 1, pos[0]]:
+                    for jy in [pos[1], pos[1] + direction[1]]:
+                        junc_pos = (jx, jy)
+                        if self.get_tile(jx, jy) != TileType.UNEXPLORED:
+                            self.explored.add(junc_pos)
+                            # Also explore adjacent walls
+                            for wx, wy in [(jx-1, jy), (jx+1, jy), (jx, jy-1), (jx, jy+1)]:
+                                if self.get_tile(wx, wy) == TileType.WALL:
+                                    self.explored.add((wx, wy))
+            else:  # East/West
+                for jx in [pos[0], pos[0] + direction[0]]:
+                    for jy in [pos[1] - 1, pos[1]]:
+                        junc_pos = (jx, jy)
+                        if self.get_tile(jx, jy) != TileType.UNEXPLORED:
+                            self.explored.add(junc_pos)
+                            for wx, wy in [(jx-1, jy), (jx+1, jy), (jx, jy-1), (jx, jy+1)]:
+                                if self.get_tile(wx, wy) == TileType.WALL:
+                                    self.explored.add((wx, wy))
 
         self._explore_from(x, y)
         return True

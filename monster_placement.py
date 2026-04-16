@@ -39,10 +39,13 @@ def place_monsters_whq_rules(
     placed_monsters = []
     placed_positions = []
 
-    # Get hero positions for distance calculation
+    # Get hero positions for distance calculation AND occupation check
     hero_positions = [(h.x, h.y) for h in heroes if not h.is_dead]
     if not hero_positions:
         return []
+
+    # Filter valid tiles to exclude hero positions
+    valid_tiles = [t for t in valid_tiles if t not in hero_positions]
 
     def distance_to_party(pos):
         return min(abs(pos[0] - hx) + abs(pos[1] - hy) for hx, hy in hero_positions)
@@ -60,7 +63,7 @@ def place_monsters_whq_rules(
         for px, py in placed_positions:
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 adj = (px + dx, py + dy)
-                if adj in valid_tiles and adj not in placed_positions:
+                if adj in valid_tiles and adj not in placed_positions and adj not in hero_positions:
                     adjacent.append(adj)
         return adjacent
 

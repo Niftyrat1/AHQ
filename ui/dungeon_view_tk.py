@@ -387,8 +387,9 @@ class DungeonViewTk:
                         color = "#c8b896"
                         outline = "#a89876"
                     elif tile == TileType.STAIRS_DOWN:
-                        # Check if this is the starting stairs at (0,0)
-                        if (x, y) == (0, 0):
+                        # Check if this is the starting 2x2 stairs block
+                        starting_stairs = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                        if (x, y) in starting_stairs:
                             color = "#32CD32"  # Green for starting stairs
                             outline = "#228B22"
                         else:

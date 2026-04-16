@@ -42,8 +42,23 @@ def generate_passage_from(
         left_offset = (0, -1)
         right_offset = (0, 1)
     
-    # Track current position (center of passage)
-    current_x, current_y = x, y
+    # Track current position - for 2-wide passages
+    # Starting position depends on direction to ensure proper tile alignment
+    # For North: from (x,y), first tiles at (x, y-1) and (x+1, y-1), track right tile (x+1)
+    # For South: from (x,y), first tiles at (x, y+1) and (x+1, y+1), track left tile (x)
+    # For East/West: similar logic
+    if direction == (0, -1):  # North
+        current_x, current_y = x + 1, y  # track right tile (x+1)
+    elif direction == (0, 1):  # South: start from (x+1, y+1) - bottom right of 2x2 junction
+        current_x, current_y = x + 1, y + 1
+    elif direction == (1, 0):  # East
+        current_x, current_y = x, y + 1  # track top tile (y+1)
+    else:  # West
+        current_x, current_y = x, y + 1  # track top tile (y+1)
+    
+    # Track the last tile positions for passage end calculation
+    last_left = None
+    last_right = None
     
     for section_idx in range(sections):
         # Each section is 5 tiles long
@@ -51,36 +66,44 @@ def generate_passage_from(
             current_x += direction[0]
             current_y += direction[1]
             
-            # Calculate left and right tile positions
-            left_x = current_x + left_offset[0]
-            left_y = current_y + left_offset[1]
-            right_x = current_x + right_offset[0]
-            right_y = current_y + right_offset[1]
+            # Calculate left and right tile positions based on direction
+            if direction in [(0, -1), (0, 1)]:  # North/South
+                left_x, left_y = current_x - 1, current_y  # left is x-1
+                right_x, right_y = current_x, current_y     # right is x
+            else:  # East/West
+                left_x, left_y = current_x, current_y - 1   # left is y-1
+                right_x, right_y = current_x, current_y     # right is y
             
-            # Check for overlap on both tiles
+            # Check for overlap on both tiles (allow overwriting WALL from starting passage)
             left_tile = dungeon.get_tile(left_x, left_y)
             right_tile = dungeon.get_tile(right_x, right_y)
             
-            # If either tile is blocked (not unexplored), stop
-            if left_tile not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.FLOOR):
+            # If either tile is blocked by something other than UNEXPLORED/FLOOR/WALL, stop
+            if left_tile not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.FLOOR, dungeon.TileType.WALL):
                 return passage_tiles
-            if right_tile not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.FLOOR):
+            if right_tile not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.FLOOR, dungeon.TileType.WALL):
                 return passage_tiles
             
-            # Place both floor tiles
+            # Place both floor tiles (overwrites WALL if present)
             dungeon.grid[(left_x, left_y)] = dungeon.TileType.FLOOR
             dungeon.grid[(right_x, right_y)] = dungeon.TileType.FLOOR
             passage_tiles.append((left_x, left_y))
             passage_tiles.append((right_x, right_y))
+            last_left = (left_x, left_y)
+            last_right = (right_x, right_y)
+            if section_idx == 0 and tile_idx == 0:
+                dungeon._log(f"    First tiles at ({left_x},{left_y}) and ({right_x},{right_y})")
             if auto_explore:
                 dungeon.explored.add((left_x, left_y))
                 dungeon.explored.add((right_x, right_y))
             
             # Place outer walls (one tile beyond left and right)
-            outer_left_x = left_x + left_offset[0]
-            outer_left_y = left_y + left_offset[1]
-            outer_right_x = right_x + right_offset[0]
-            outer_right_y = right_y + right_offset[1]
+            if direction in [(0, -1), (0, 1)]:  # North/South
+                outer_left_x, outer_left_y = left_x - 1, left_y
+                outer_right_x, outer_right_y = right_x + 1, right_y
+            else:  # East/West
+                outer_left_x, outer_left_y = left_x, left_y - 1
+                outer_right_x, outer_right_y = right_x, right_y + 1
             
             for wall_x, wall_y in [(outer_left_x, outer_left_y), (outer_right_x, outer_right_y)]:
                 existing = dungeon.get_tile(wall_x, wall_y)
@@ -88,6 +111,7 @@ def generate_passage_from(
                     dungeon.grid[(wall_x, wall_y)] = dungeon.TileType.WALL
                     if auto_explore:
                         dungeon.explored.add((wall_x, wall_y))
+                dungeon._log(f"    Placed wall at ({wall_x},{wall_y}), existing was: {existing}")
             
             # Check for features (doors) - Passage Features Table (2D12)
             # Only roll once per passage (first section, middle tile)
@@ -129,24 +153,21 @@ def generate_passage_from(
                                 dungeon.doors[(door_x, door_y)] = {"is_open": False, "from_room": False}
     
     # After all sections are placed, roll passage end
+    # Use the actual last tile positions, not a calculated center
+    # last_left and last_right were set in the last iteration of the loop
     end_roll = random.randint(1, 12) + random.randint(1, 12)
-    end_x, end_y = current_x + direction[0], current_y + direction[1]
-    dungeon._log(f"    Passage ends at center ({end_x},{end_y}), roll: {end_roll}")
-    _resolve_passage_end(dungeon, end_x, end_y, direction, end_roll)
+    dungeon._log(f"    Passage ends at ({last_left[0]},{last_left[1]}) and ({last_right[0]},{last_right[1]}), roll: {end_roll}")
+    _resolve_passage_end(dungeon, last_left, last_right, direction, end_roll)
     
     # After _resolve_passage_end, we may need to cap walls for dead ends and stairs
-    # The end tiles are at left_pos and right_pos (one step beyond last passage tiles)
-    left_pos = (end_x + left_offset[0], end_y + left_offset[1])
-    right_pos = (end_x + right_offset[0], end_y + right_offset[1])
-    
-    end_tile = dungeon.get_tile(left_pos[0], left_pos[1])
-    dungeon._log(f"    End tile check at {left_pos}: {end_tile}")
+    end_tile = dungeon.get_tile(last_left[0], last_left[1])
+    dungeon._log(f"    End tile check at {last_left}: {end_tile}")
     is_dead_end_or_stairs = end_tile in (dungeon.TileType.PASSAGE_END, dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
     
     # If dead end or stairs, cap with forward walls
     if is_dead_end_or_stairs:
-        beyond_left = (left_pos[0] + direction[0], left_pos[1] + direction[1])
-        beyond_right = (right_pos[0] + direction[0], right_pos[1] + direction[1])
+        beyond_left = (last_left[0] + direction[0], last_left[1] + direction[1])
+        beyond_right = (last_right[0] + direction[0], last_right[1] + direction[1])
         dungeon._log(f"    Capping walls at {beyond_left} and {beyond_right}")
         for wall_pos in [beyond_left, beyond_right]:
             if dungeon.get_tile(wall_pos[0], wall_pos[1]) in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
@@ -155,49 +176,119 @@ def generate_passage_from(
     return passage_tiles
 
 
-def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[int, int], roll: int):
-    """Resolve what happens at passage end (2D12). x,y is the center position, we place 2-wide tiles."""
+def _resolve_passage_end(dungeon: "Dungeon", left_pos: Tuple[int, int], right_pos: Tuple[int, int], direction: Tuple[int, int], roll: int):
+    """Resolve what happens at passage end (2D12). left_pos and right_pos are the actual 2-wide end tiles."""
     if not hasattr(dungeon, 'pending_junctions'):
         dungeon.pending_junctions = {}
     
-    # Calculate left/right offsets based on direction
-    if direction in [(0, -1), (0, 1)]:  # Vertical passage (North/South)
-        left_offset, right_offset = (-1, 0), (1, 0)
-    else:  # Horizontal passage (East/West)
-        left_offset, right_offset = (0, -1), (0, 1)
+    # Calculate the forward row for 2x2 ends (one step beyond the end tiles)
+    forward_left = (left_pos[0] + direction[0], left_pos[1] + direction[1])
+    forward_right = (right_pos[0] + direction[0], right_pos[1] + direction[1])
     
-    # Calculate the actual 2-wide tile positions at this center point
-    left_pos = (x + left_offset[0], y + left_offset[1])
-    right_pos = (x + right_offset[0], y + right_offset[1])
+    # Helper to explore a 2x2 area and its walls
+    def _explore_passage_end_2x2(p1, p2, p3, p4):
+        """Explore a 2x2 area and adjacent walls."""
+        dungeon._log(f"    Exploring 2x2 area: {p1}, {p2}, {p3}, {p4}")
+        for (tx, ty) in [p1, p2, p3, p4]:
+            dungeon.explored.add((tx, ty))
+            dungeon._log(f"      Added to explored: ({tx},{ty}) tile: {dungeon.get_tile(tx, ty)}")
+            # Explore adjacent walls
+            for wx, wy in [(tx-1, ty), (tx+1, ty), (tx, ty-1), (tx, ty+1)]:
+                if dungeon.get_tile(wx, wy) == dungeon.TileType.WALL:
+                    dungeon.explored.add((wx, wy))
+                    dungeon._log(f"      Added wall to explored: ({wx},{wy})")
     
     if roll <= 3 or 12 <= roll <= 14 or roll >= 23:
         # T-junction (2-3, 12-14, 23-24): 2x2 floor, wall blocks forward
-        # Create 2x2 junction using center and the tile in the forward direction
-        forward_pos = (x + direction[0], y + direction[1])
-        forward_left = (forward_pos[0] + left_offset[0], forward_pos[1] + left_offset[1])
-        forward_right = (forward_pos[0] + right_offset[0], forward_pos[1] + right_offset[1])
+        # left_pos and right_pos are already FLOOR from passage, only add forward tiles
+        dungeon._log(f"    T-junction 2x2: existing {left_pos},{right_pos}, adding {forward_left},{forward_right}")
+        dungeon.grid[forward_left] = dungeon.TileType.FLOOR
+        dungeon.grid[forward_right] = dungeon.TileType.FLOOR
+        dungeon._log(f"      Set forward tiles to FLOOR: {forward_left}={dungeon.get_tile(*forward_left)}, {forward_right}={dungeon.get_tile(*forward_right)}")
         
-        junc_tiles = [left_pos, right_pos, forward_left, forward_right]
-        for tx, ty in junc_tiles:
-            dungeon.grid[(tx, ty)] = dungeon.TileType.FLOOR
-        
-        # Wall blocks forward direction (beyond the 2x2)
-        wall_center = (x + direction[0] * 2, y + direction[1] * 2)
-        wall_left = (wall_center[0] + left_offset[0], wall_center[1] + left_offset[1])
-        wall_right = (wall_center[0] + right_offset[0], wall_center[1] + right_offset[1])
+        # Wall blocks forward direction (one step beyond the 2x2)
+        wall_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+        wall_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+        # Side walls adjacent to capping walls
+        side_left = (wall_left[0] - 1, wall_left[1])
+        side_right = (wall_right[0] + 1, wall_right[1])
+        dungeon._log(f"    Placing capping walls at {wall_left} and {wall_right}")
+        dungeon._log(f"    Placing side walls at {side_left} and {side_right}")
         dungeon.grid[wall_left] = dungeon.TileType.WALL
         dungeon.grid[wall_right] = dungeon.TileType.WALL
+        dungeon.grid[side_left] = dungeon.TileType.WALL
+        dungeon.grid[side_right] = dungeon.TileType.WALL
         
-        # Side walls at junction
+        # Side walls at junction - set pending for ALL FOUR 2x2 tiles
         perp_dirs = _get_both_perpendicular(direction)
         dungeon.pending_junctions[left_pos] = list(perp_dirs)
+        dungeon.pending_junctions[right_pos] = list(perp_dirs)
+        dungeon.pending_junctions[forward_left] = list(perp_dirs)
+        dungeon.pending_junctions[forward_right] = list(perp_dirs)
+        dungeon._log(f"    T-junction pending set for: {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+        # Explore the 2x2 T-junction area
+        _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+        # Also explore the capping walls and side walls
+        dungeon.explored.add(wall_left)
+        dungeon.explored.add(wall_right)
+        dungeon.explored.add(side_left)
+        dungeon.explored.add(side_right)
         
     elif 4 <= roll <= 8:
-        # Dead end (4-8) - place PASSAGE_END on both floor tiles
+        # Dead end (4-8) - place PASSAGE_END on 2x2 grid
+        # left_pos and right_pos remain FLOOR (from passage), extend with forward tiles as PASSAGE_END
         dungeon._log(f"    Dead end at {left_pos} and {right_pos}")
-        dungeon.grid[left_pos] = dungeon.TileType.PASSAGE_END
-        dungeon.grid[right_pos] = dungeon.TileType.PASSAGE_END
-        dungeon._log(f"    Placed PASSAGE_END tiles")
+        # For vertical passages, make it 2x2 by adding forward tiles as PASSAGE_END
+        if direction in [(0, -1), (0, 1)]:
+            dungeon.grid[forward_left] = dungeon.TileType.PASSAGE_END
+            dungeon.grid[forward_right] = dungeon.TileType.PASSAGE_END
+            dungeon._log(f"    Dead end 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 dead end
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            # Place side walls adjacent to capping walls
+            side_left = (cap_left[0] - 1, cap_left[1])
+            side_right = (cap_right[0] + 1, cap_right[1])
+            dungeon._log(f"    Placing capping walls at {cap_left} and {cap_right}")
+            dungeon._log(f"    Placing side walls at {side_left} and {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            # Explore the 2x2 dead end and its capping walls
+            _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            dungeon._log(f"    Dead end final tiles: {left_pos}={dungeon.get_tile(*left_pos)}, {right_pos}={dungeon.get_tile(*right_pos)}, {forward_left}={dungeon.get_tile(*forward_left)}, {forward_right}={dungeon.get_tile(*forward_right)}")
+        else:
+            # Horizontal - extend to 2x2 with forward tiles as PASSAGE_END
+            dungeon.grid[forward_left] = dungeon.TileType.PASSAGE_END
+            dungeon.grid[forward_right] = dungeon.TileType.PASSAGE_END
+            dungeon._log(f"    Horizontal dead end 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 dead end
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            # Side walls (above and below the capping walls)
+            side_left = (cap_left[0], cap_left[1] - 1)
+            side_right = (cap_right[0], cap_right[1] + 1)
+            dungeon._log(f"    Horizontal dead end capping at {cap_left}, {cap_right}, sides {side_left}, {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            # Explore the 2x2 dead end (left/right as FLOOR, forward as PASSAGE_END) and capping walls
+            dungeon.explored.add(left_pos)
+            dungeon.explored.add(right_pos)
+            dungeon.explored.add(forward_left)
+            dungeon.explored.add(forward_right)
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            dungeon._log(f"    Placed PASSAGE_END tiles with capping walls")
+            dungeon._log(f"    Dead end final tiles: {left_pos}={dungeon.get_tile(*left_pos)}, {right_pos}={dungeon.get_tile(*right_pos)}, {forward_left}={dungeon.get_tile(*forward_left)}, {forward_right}={dungeon.get_tile(*forward_right)}")
         
     elif 9 <= roll <= 11:
         # Right turn (9-11)
@@ -210,10 +301,65 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         else:  # North -> East
             right_dir = (1, 0)
         
-        # Create 2-wide turn area - place FLOOR at both positions
+        # Create 2-wide turn area - place FLOOR at 2x2 positions
         dungeon.grid[left_pos] = dungeon.TileType.FLOOR
         dungeon.grid[right_pos] = dungeon.TileType.FLOOR
-        dungeon.pending_junctions[left_pos] = [right_dir]
+        dungeon._log(f"    Right turn base tiles at {left_pos} and {right_pos}")
+        # For vertical passages, make it 2x2 by adding forward row
+        if direction in [(0, -1), (0, 1)]:
+            dungeon.grid[forward_left] = dungeon.TileType.FLOOR
+            dungeon.grid[forward_right] = dungeon.TileType.FLOOR
+            dungeon._log(f"    Right turn forward tiles at {forward_left} and {forward_right}")
+            # Explore the 2x2 turn area
+            _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+            # Place capping walls to block forward direction (one step beyond the 2x2)
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (cap_left[0] - 1, cap_left[1])
+            side_right = (cap_right[0] + 1, cap_right[1])
+            dungeon._log(f"    Right turn capping walls at {cap_left}, {cap_right}, sides {side_left}, {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            # Set pending for all 2x2 turn tiles
+            dungeon.pending_junctions[left_pos] = [right_dir]
+            dungeon.pending_junctions[right_pos] = [right_dir]
+            dungeon.pending_junctions[forward_left] = [right_dir]
+            dungeon.pending_junctions[forward_right] = [right_dir]
+        else:
+            # Horizontal - extend to 2x2 with forward tiles as FLOOR
+            dungeon.grid[forward_left] = dungeon.TileType.FLOOR
+            dungeon.grid[forward_right] = dungeon.TileType.FLOOR
+            dungeon._log(f"    Horizontal right turn 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 turn
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (cap_left[0], cap_left[1] - 1)
+            side_right = (cap_right[0], cap_right[1] + 1)
+            dungeon._log(f"    Horizontal right turn capping at {cap_left}, {cap_right}, sides {side_left}, {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            # Explore all 4 tiles and capping walls
+            dungeon.explored.add(left_pos)
+            dungeon.explored.add(right_pos)
+            dungeon.explored.add(forward_left)
+            dungeon.explored.add(forward_right)
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            # Set pending for all 2x2 turn tiles
+            dungeon.pending_junctions[left_pos] = [right_dir]
+            dungeon.pending_junctions[right_pos] = [right_dir]
+            dungeon.pending_junctions[forward_left] = [right_dir]
+            dungeon.pending_junctions[forward_right] = [right_dir]
         
     elif 15 <= roll <= 17:
         # Left turn (15-17)
@@ -226,20 +372,157 @@ def _resolve_passage_end(dungeon: "Dungeon", x: int, y: int, direction: Tuple[in
         else:  # North -> West
             left_dir = (-1, 0)
         
-        # Create 2-wide turn area
+        # Create 2-wide turn area - place FLOOR at 2x2 positions
         dungeon.grid[left_pos] = dungeon.TileType.FLOOR
         dungeon.grid[right_pos] = dungeon.TileType.FLOOR
-        dungeon.pending_junctions[left_pos] = [left_dir]
+        # For vertical passages, make it 2x2 by adding forward row
+        if direction in [(0, -1), (0, 1)]:
+            dungeon.grid[forward_left] = dungeon.TileType.FLOOR
+            dungeon.grid[forward_right] = dungeon.TileType.FLOOR
+            # Explore the 2x2 turn area
+            _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+            # Place capping walls to block forward direction (one step beyond the 2x2)
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (cap_left[0] - 1, cap_left[1])
+            side_right = (cap_right[0] + 1, cap_right[1])
+            dungeon._log(f"    Left turn capping walls at {cap_left}, {cap_right}, sides {side_left}, {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            # Set pending for all 2x2 turn tiles
+            dungeon.pending_junctions[left_pos] = [left_dir]
+            dungeon.pending_junctions[right_pos] = [left_dir]
+            dungeon.pending_junctions[forward_left] = [left_dir]
+            dungeon.pending_junctions[forward_right] = [left_dir]
+        else:
+            # Horizontal - extend to 2x2 with forward tiles as FLOOR
+            dungeon.grid[forward_left] = dungeon.TileType.FLOOR
+            dungeon.grid[forward_right] = dungeon.TileType.FLOOR
+            dungeon._log(f"    Horizontal left turn 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 turn
+            cap_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            cap_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (cap_left[0], cap_left[1] - 1)
+            side_right = (cap_right[0], cap_right[1] + 1)
+            dungeon._log(f"    Horizontal left turn capping at {cap_left}, {cap_right}, sides {side_left}, {side_right}")
+            dungeon.grid[cap_left] = dungeon.TileType.WALL
+            dungeon.grid[cap_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            # Explore all 4 tiles and capping walls
+            dungeon.explored.add(left_pos)
+            dungeon.explored.add(right_pos)
+            dungeon.explored.add(forward_left)
+            dungeon.explored.add(forward_right)
+            dungeon.explored.add(cap_left)
+            dungeon.explored.add(cap_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+            # Set pending for all 2x2 turn tiles
+            dungeon.pending_junctions[left_pos] = [left_dir]
+            dungeon.pending_junctions[right_pos] = [left_dir]
+            dungeon.pending_junctions[forward_left] = [left_dir]
+            dungeon.pending_junctions[forward_right] = [left_dir]
         
     elif 18 <= roll <= 19:
-        # Stairs down
+        # Stairs down - 2x2 grid
         dungeon.grid[left_pos] = dungeon.TileType.STAIRS_DOWN
         dungeon.grid[right_pos] = dungeon.TileType.STAIRS_DOWN
+        # For vertical passages, make it 2x2
+        if direction in [(0, -1), (0, 1)]:
+            dungeon.grid[forward_left] = dungeon.TileType.STAIRS_DOWN
+            dungeon.grid[forward_right] = dungeon.TileType.STAIRS_DOWN
+            # Explore the 2x2 stairs and place capping walls
+            _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+            wall_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            wall_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (wall_left[0] - 1, wall_left[1])
+            side_right = (wall_right[0] + 1, wall_right[1])
+            dungeon._log(f"    Vertical stairs down capping at {wall_left}, {wall_right}, sides {side_left}, {side_right}")
+            dungeon.grid[wall_left] = dungeon.TileType.WALL
+            dungeon.grid[wall_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(wall_left)
+            dungeon.explored.add(wall_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+        else:
+            # Horizontal - extend to 2x2 with forward tiles as STAIRS_DOWN
+            dungeon.grid[forward_left] = dungeon.TileType.STAIRS_DOWN
+            dungeon.grid[forward_right] = dungeon.TileType.STAIRS_DOWN
+            dungeon._log(f"    Horizontal stairs down 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 stairs
+            wall_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            wall_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (wall_left[0], wall_left[1] - 1)
+            side_right = (wall_right[0], wall_right[1] + 1)
+            dungeon._log(f"    Horizontal stairs down capping at {wall_left}, {wall_right}, sides {side_left}, {side_right}")
+            dungeon.grid[wall_left] = dungeon.TileType.WALL
+            dungeon.grid[wall_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(left_pos)
+            dungeon.explored.add(right_pos)
+            dungeon.explored.add(forward_left)
+            dungeon.explored.add(forward_right)
+            dungeon.explored.add(wall_left)
+            dungeon.explored.add(wall_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
         
     elif 20 <= roll <= 22:
-        # Stairs out
+        # Stairs out - 2x2 grid
         dungeon.grid[left_pos] = dungeon.TileType.STAIRS_OUT
         dungeon.grid[right_pos] = dungeon.TileType.STAIRS_OUT
+        # For vertical passages, make it 2x2
+        if direction in [(0, -1), (0, 1)]:
+            dungeon.grid[forward_left] = dungeon.TileType.STAIRS_OUT
+            dungeon.grid[forward_right] = dungeon.TileType.STAIRS_OUT
+            # Explore the 2x2 stairs and place capping walls
+            _explore_passage_end_2x2(left_pos, right_pos, forward_left, forward_right)
+            wall_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            wall_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (wall_left[0] - 1, wall_left[1])
+            side_right = (wall_right[0] + 1, wall_right[1])
+            dungeon._log(f"    Vertical stairs out capping at {wall_left}, {wall_right}, sides {side_left}, {side_right}")
+            dungeon.grid[wall_left] = dungeon.TileType.WALL
+            dungeon.grid[wall_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(wall_left)
+            dungeon.explored.add(wall_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
+        else:
+            # Horizontal - extend to 2x2 with forward tiles as STAIRS_OUT
+            dungeon.grid[forward_left] = dungeon.TileType.STAIRS_OUT
+            dungeon.grid[forward_right] = dungeon.TileType.STAIRS_OUT
+            dungeon._log(f"    Horizontal stairs out 2x2 at {left_pos}, {right_pos}, {forward_left}, {forward_right}")
+            # Place capping walls one step BEYOND the 2x2 stairs
+            wall_left = (forward_left[0] + direction[0], forward_left[1] + direction[1])
+            wall_right = (forward_right[0] + direction[0], forward_right[1] + direction[1])
+            side_left = (wall_left[0], wall_left[1] - 1)
+            side_right = (wall_right[0], wall_right[1] + 1)
+            dungeon._log(f"    Horizontal stairs out capping at {wall_left}, {wall_right}, sides {side_left}, {side_right}")
+            dungeon.grid[wall_left] = dungeon.TileType.WALL
+            dungeon.grid[wall_right] = dungeon.TileType.WALL
+            dungeon.grid[side_left] = dungeon.TileType.WALL
+            dungeon.grid[side_right] = dungeon.TileType.WALL
+            dungeon.explored.add(left_pos)
+            dungeon.explored.add(right_pos)
+            dungeon.explored.add(forward_left)
+            dungeon.explored.add(forward_right)
+            dungeon.explored.add(wall_left)
+            dungeon.explored.add(wall_right)
+            dungeon.explored.add(side_left)
+            dungeon.explored.add(side_right)
 
 
 def _generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
