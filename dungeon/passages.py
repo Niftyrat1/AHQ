@@ -53,15 +53,15 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
         # For horizontal passages from T-junctions: offset by row
         offset = 0
         if not from_turn and source_dir in [(1, 0), (-1, 0)]:
-            # T-junction from East/West: row 1 at y, row 2 at y+1
-            offset = 1 if row == 2 else 0
+            # T-junction from East/West: row 1 at y, row 2 at y-1 (align with row 1)
+            offset = -1 if row == 2 else 0
         current_x, current_y = x + 1, y + offset  # track right tile (x+1)
     elif direction == (0, 1):  # South
         # For horizontal passages from turns: no offset (passage aligns with tile)
         # For horizontal passages from T-junctions: offset by row
         offset = 0
         if not from_turn and source_dir in [(1, 0), (-1, 0)]:
-            # T-junction from East/West: row 1 at y+1, row 2 at y
+            # T-junction from East/West: row 1 at y+1, row 2 at y (align with row 1)
             offset = -1 if row == 2 else 0
         current_x, current_y = x + 1, y + 1 + offset
     elif direction == (1, 0):  # East
