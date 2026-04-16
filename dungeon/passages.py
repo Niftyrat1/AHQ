@@ -105,9 +105,14 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
                 dungeon.grid[wall_b] = dungeon.TileType.WALL
 
-    # Check if we actually generated any tiles (collision may have stopped us immediately)
+    # Check if we actually generated any tiles
     if not passage_tiles or last_a is None or last_b is None:
-        dungeon._log(f"    No tiles generated (collision at start), aborting passage")
+        dungeon._log(f"    No tiles generated, aborting passage")
+        return passage_tiles
+
+    # If collision was detected, we hit an existing wall - don't create passage end
+    if collision_detected:
+        dungeon._log(f"    Collision detected, terminating passage at wall without creating end")
         return passage_tiles
 
     dungeon._log(f"    Passage ends at {last_a} and {last_b}, roll: {roll}")
