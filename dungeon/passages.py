@@ -47,9 +47,23 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     
     # Track current position
     if direction == (0, -1):  # North
-        current_x, current_y = x + 1, y  # track right tile (x+1)
+        # For North from East/West turn, offset depends on row
+        # Row 1: passage at same y as tile
+        # Row 2: passage one tile lower (y+1)
+        offset = 0
+        if source_dir in [(1, 0), (-1, 0)]:  # From East or West turn
+            if row == 2:
+                offset = 1
+        current_x, current_y = x + 1, y + offset  # track right tile (x+1)
     elif direction == (0, 1):  # South
-        current_x, current_y = x + 1, y + 1
+        # For South from East/West turn, offset depends on row
+        # Row 1: passage at same y as tile
+        # Row 2: passage one tile higher (y-1)
+        offset = 0
+        if source_dir in [(1, 0), (-1, 0)]:  # From East or West turn
+            if row == 2:
+                offset = -1
+        current_x, current_y = x + 1, y + 1 + offset
     elif direction == (1, 0):  # East
         # For East from T-junction, offset depends on source direction and row
         # North source: offset 0 (passage at same y as junction)
