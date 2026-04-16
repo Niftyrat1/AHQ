@@ -59,7 +59,11 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             offset = 1
         current_x, current_y = x + 1, y + offset  # track right tile (x+1)
     else:  # West
-        current_x, current_y = x, y  # track left tile (x)
+        # For West from T-junction, offset depends on source direction and row
+        offset = 0
+        if source_dir == (0, 1) and row == 1:  # South source, row 1
+            offset = 1
+        current_x, current_y = x, y + offset  # track left tile (x)
     last_left = None
     last_right = None
     

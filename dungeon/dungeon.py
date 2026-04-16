@@ -533,13 +533,24 @@ class Dungeon:
     def to_dict(self) -> dict:
         """Convert dungeon to dictionary for saving."""
         pending = {}
-        for pos, (direction, row, exits) in self.pending_junctions.items():
+        for pos, junction_data in self.pending_junctions.items():
             key = f"{pos[0]},{pos[1]}"
-            pending[key] = {
-                "direction": f"{direction[0]},{direction[1]}",
-                "row": row,
-                "exits": [f"{e[0]},{e[1]}" for e in exits]
-            }
+            if isinstance(junction_data, tuple) and len(junction_data) == 3:
+                # New format: (source_dir, row, exits)
+                direction, row, exits = junction_data
+                pending[key] = {
+                    "direction": f"{direction[0]},{direction[1]}",
+                    "row": row,
+                    "exits": [f"{e[0]},{e[1]}" for e in exits]
+                }
+            elif isinstance(junction_data, list):
+                # Old format: [exit1, exit2, ...]
+                exits = junction_data
+                pending[key] = {
+                    "direction": "0,0",
+                    "row": 1,
+                    "exits": [f"{e[0]},{e[1]}" for e in exits]
+                }
         
         return {
             "size": self.size,
