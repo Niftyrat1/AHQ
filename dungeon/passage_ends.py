@@ -117,14 +117,13 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
     for pos in [wall_left, wall_right, side_left, side_right]:
         dungeon.grid[pos] = dungeon.TileType.WALL
     
-    # Set pending for all 4 T-junction tiles with source direction and row info
-    # Row 1 = forward1 (closer to passage for North, further for South)
-    # Row 2 = forward2 (further from passage for North, closer for South)
+    # Set pending for all 4 T-junction tiles with exit directions
     perp_dirs = _get_both_perpendicular(direction)
-    dungeon.pending_junctions[forward1_left] = (direction, 1, list(perp_dirs), False)
-    dungeon.pending_junctions[forward1_right] = (direction, 1, list(perp_dirs), False)
-    dungeon.pending_junctions[forward2_left] = (direction, 2, list(perp_dirs), False)
-    dungeon.pending_junctions[forward2_right] = (direction, 2, list(perp_dirs), False)
+    exits = list(perp_dirs)
+    dungeon.pending_junctions[forward1_left] = exits
+    dungeon.pending_junctions[forward1_right] = exits
+    dungeon.pending_junctions[forward2_left] = exits
+    dungeon.pending_junctions[forward2_right] = exits
     dungeon._log(f"    T-junction pending set for: {forward1_left}, {forward1_right}, {forward2_left}, {forward2_right}")
     
     # Explore the 2x2 passage end area and capping walls
@@ -208,15 +207,6 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
         dungeon.grid[pos] = dungeon.TileType.FLOOR
     
-    # For horizontal passages turning vertical, fill the gap between left and right rows
-    if direction in [(1, 0), (-1, 0)]:  # East or West passage turning North/South
-        # Fill middle tiles to complete the 2-wide passage
-        middle1 = (forward1_left[0], forward1_left[1] + 1)  # Between forward1_left and forward1_right
-        middle2 = (forward2_left[0], forward2_left[1] + 1)  # Between forward2_left and forward2_right
-        dungeon.grid[middle1] = dungeon.TileType.FLOOR
-        dungeon.grid[middle2] = dungeon.TileType.FLOOR
-        dungeon._log(f"    Filled middle tiles: {middle1}, {middle2}")
-    
     # Explore the 2x2 turn area (capping walls will be added after placement)
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
@@ -286,11 +276,11 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
         dungeon.explored.add(pos)
     
     # Set pending only for forward tiles (the turn extension)
-    # Use new tuple format: (source_direction, row, exits, from_turn)
-    dungeon.pending_junctions[forward1_left] = (direction, 1, [turn_dir], True)
-    dungeon.pending_junctions[forward1_right] = (direction, 1, [turn_dir], True)
-    dungeon.pending_junctions[forward2_left] = (direction, 2, [turn_dir], True)
-    dungeon.pending_junctions[forward2_right] = (direction, 2, [turn_dir], True)
+    exits = [turn_dir]
+    dungeon.pending_junctions[forward1_left] = exits
+    dungeon.pending_junctions[forward1_right] = exits
+    dungeon.pending_junctions[forward2_left] = exits
+    dungeon.pending_junctions[forward2_right] = exits
 
 
 def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_type,

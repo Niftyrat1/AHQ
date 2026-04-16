@@ -25,7 +25,7 @@ class Dungeon:
         self.debug_log = debug_log
         self.treasure: Dict[Tuple[int, int], bool] = {}
         self.hero_start = (0, 0)
-        self.pending_junctions: Dict[Tuple[int, int], Tuple[Tuple[int, int], int, List[Tuple[int, int]]]] = {}
+        self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
         self.rooms: List[Set[Tuple[int, int]]] = []
         
         self._create_starting_area()
@@ -108,10 +108,10 @@ class Dungeon:
         
         # Set up pending junction for North and South passages
         # All 4 tiles of the 2x2 junction trigger the same passages
-        # Store as (source_direction, row, exits, from_turn)
+        exits = [(0, -1), (0, 1)]
         for jx in [9, 10]:
             for jy in [0, 1]:
-                self.pending_junctions[(jx, jy)] = ((0, -1), 1, [(0, -1), (0, 1)], False)
+                self.pending_junctions[(jx, jy)] = exits
         
     
     def get_tile(self, x: int, y: int) -> TileType:
@@ -214,19 +214,17 @@ class Dungeon:
         
         # Handle backward compatibility for different pending_junctions formats
         junction_data = self.pending_junctions[pos]
-        if isinstance(junction_data, tuple) and len(junction_data) == 4:
-            # New format: (source_dir, row, exits, from_turn)
-            source_dir, row, exits, from_turn = junction_data
-        elif isinstance(junction_data, tuple) and len(junction_data) == 3:
-            # Older format: (source_dir, row, exits)
-            source_dir, row, exits = junction_data
-            from_turn = False
-        elif isinstance(junction_data, list):
-            # Old format: [exit1, exit2, ...]
-            source_dir, row, exits, from_turn = (0, 0), 1, junction_data, False
+        if isinstance(junction_data, (tuple, list)):
+            # Extract exits from tuple format (backward compatible)
+            if isinstance(junction_data, tuple):
+                if len(junction_data) >= 3:
+                    exits = junction_data[2]  # (source_dir, row, exits, ...) -> exits
+                else:
+                    exits = []
+            else:
+                exits = list(junction_data)  # Old list format
         else:
-            # Unknown format, use defaults
-            source_dir, row, exits, from_turn = (0, 0), 1, [], False
+            exits = []
         
         # Remove all tiles that share the same exits as this junction
         # Find all positions with matching exits and remove them all at once
@@ -278,8 +276,7 @@ class Dungeon:
         all_passage_tiles = []
         for direction in exits:
             self._log(f"  Generating passage from {pos} in direction {direction}")
-            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction, 
-                                                  from_room=False, row=row, source_dir=source_dir, from_turn=from_turn)
+            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction, from_room=False)
             self._log(f"  Generated {len(passage_tiles)} tiles")
             all_passage_tiles.extend(passage_tiles)
 
@@ -539,34 +536,16 @@ class Dungeon:
         pending = {}
         for pos, junction_data in self.pending_junctions.items():
             key = f"{pos[0]},{pos[1]}"
-            if isinstance(junction_data, tuple) and len(junction_data) == 4:
-                # New format: (source_dir, row, exits, from_turn)
-                direction, row, exits, from_turn = junction_data
-                pending[key] = {
-                    "direction": f"{direction[0]},{direction[1]}",
-                    "row": row,
-                    "exits": [f"{e[0]},{e[1]}" for e in exits],
-                    "from_turn": from_turn
-                }
-            elif isinstance(junction_data, tuple) and len(junction_data) == 3:
-                # Older format: (source_dir, row, exits)
-                direction, row, exits = junction_data
-                pending[key] = {
-                    "direction": f"{direction[0]},{direction[1]}",
-                    "row": row,
-                    "exits": [f"{e[0]},{e[1]}" for e in exits],
-                    "from_turn": False
-                }
-            elif isinstance(junction_data, list):
-                # Old format: [exit1, exit2, ...]
-                exits = junction_data
-                pending[key] = {
-                    "direction": "0,0",
-                    "row": 1,
-                    "exits": [f"{e[0]},{e[1]}" for e in exits],
-                    "from_turn": False
-                }
-        
+            if isinstance(junction_data, list):
+                # Simple list format: [exit1, exit2, ...]
+                pending[key] = [f"{e[0]},{e[1]}" for e in junction_data]
+            elif isinstance(junction_data, tuple) and len(junction_data) >= 3:
+                # Backward compatibility: extract exits from tuple
+                exits = junction_data[2]
+                pending[key] = [f"{e[0]},{e[1]}" for e in exits]
+            else:
+                pending[key] = []
+
         return {
             "size": self.size,
             "level": self.level,
@@ -619,17 +598,13 @@ class Dungeon:
         for key, junction_data in data.get("pending_junctions", {}).items():
             x, y = map(int, key.split(","))
             if isinstance(junction_data, dict):
-                # New format: {"direction": "dx,dy", "row": n, "exits": [...], "from_turn": bool}
-                dir_str = junction_data["direction"]
-                direction = tuple(map(int, dir_str.split(",")))
-                row = junction_data["row"]
-                exits = [tuple(map(int, e.split(","))) for e in junction_data["exits"]]
-                from_turn = junction_data.get("from_turn", False)
-                dungeon.pending_junctions[(x, y)] = (direction, row, exits, from_turn)
-            else:
-                # Old format: list of exit directions (for backward compatibility)
-                dungeon.pending_junctions[(x, y)] = ((0, 0), 1, [tuple(map(int, d.split(","))) for d in junction_data], False)
-        
+                # Older dict format with exits array (backward compatibility)
+                exits = [tuple(map(int, e.split(","))) for e in junction_data.get("exits", [])]
+                dungeon.pending_junctions[(x, y)] = exits
+            elif isinstance(junction_data, list):
+                # Simple list format: ["dx,dy", ...]
+                dungeon.pending_junctions[(x, y)] = [tuple(map(int, d.split(","))) for d in junction_data]
+
         dungeon.hero_start = tuple(data.get("hero_start", (0, 0)))
-        
+
         return dungeon
