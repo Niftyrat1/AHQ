@@ -22,8 +22,8 @@ def _get_both_perpendicular(direction: Tuple[int, int]) -> Tuple[Tuple[int, int]
         return ((0, 1), (0, -1))  # South, North
 
 
-def _explore_passage_end_2x2(dungeon: "Dungeon", p1, p2, p3, p4):
-    """Explore a 2x2 area and adjacent walls."""
+def _explore_passage_end_2x2(dungeon: "Dungeon", p1, p2, p3, p4, extra_walls=None):
+    """Explore a 2x2 area, adjacent walls, and any extra walls (e.g., capping walls)."""
     dungeon._log(f"    Exploring 2x2 area: {p1}, {p2}, {p3}, {p4}")
     for (tx, ty) in [p1, p2, p3, p4]:
         dungeon.explored.add((tx, ty))
@@ -33,6 +33,11 @@ def _explore_passage_end_2x2(dungeon: "Dungeon", p1, p2, p3, p4):
             if dungeon.get_tile(wx, wy) == dungeon.TileType.WALL:
                 dungeon.explored.add((wx, wy))
                 dungeon._log(f"      Added wall to explored: ({wx},{wy})")
+    # Explore any extra walls (e.g., capping walls placed after the 2x2 area)
+    if extra_walls:
+        for pos in extra_walls:
+            dungeon.explored.add(pos)
+            dungeon._log(f"      Added extra wall to explored: {pos}")
 
 
 def resolve_passage_end(dungeon: "Dungeon", left_pos: Tuple[int, int], 
@@ -114,10 +119,9 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
     dungeon._log(f"    T-junction pending set for: {forward1_left}, {forward1_right}, "
                   f"{forward2_left}, {forward2_right}")
     
-    # Explore the 2x2 passage end area
-    _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
-    for pos in [wall_left, wall_right, side_left, side_right]:
-        dungeon.explored.add(pos)
+    # Explore the 2x2 passage end area and capping walls
+    _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right,
+                              extra_walls=[wall_left, wall_right, side_left, side_right])
 
 
 def _generate_dead_end(dungeon: "Dungeon", left_pos, right_pos, direction,
@@ -143,9 +147,8 @@ def _generate_dead_end(dungeon: "Dungeon", left_pos, right_pos, direction,
         dungeon.grid[pos] = dungeon.TileType.WALL
     
     # Explore the 2x2 dead end and its capping walls
-    _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
-    for pos in [wall_left, wall_right, side_left, side_right]:
-        dungeon.explored.add(pos)
+    _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right,
+                             extra_walls=[wall_left, wall_right, side_left, side_right])
     
     dungeon._log(f"    Placed PASSAGE_END tiles with capping walls")
 
@@ -170,7 +173,7 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
         dungeon.grid[pos] = dungeon.TileType.FLOOR
     
-    # Explore the 2x2 turn area
+    # Explore the 2x2 turn area (capping walls will be added after placement)
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
     # Place side walls along the 2x2 turn area to guide the turn direction
@@ -201,10 +204,9 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     
     dungeon._log(f"    {turn_type.capitalize()} turn capping walls at {wall_left}, {wall_right}, "
                  f"sides {side_left}, {side_right}")
+    # Explore capping walls
     for pos in [wall_left, wall_right, side_left, side_right]:
         dungeon.grid[pos] = dungeon.TileType.WALL
-    
-    for pos in [wall_left, wall_right, side_left, side_right]:
         dungeon.explored.add(pos)
     
     # Set pending only for forward tiles (the turn extension)
@@ -225,7 +227,7 @@ def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_
     for pos in [forward1_left, forward1_right, forward2_left, forward2_right]:
         dungeon.grid[pos] = tile_type
     
-    # Explore the 2x2 stairs
+    # Explore the 2x2 stairs (side walls and capping walls will be added after placement)
     _explore_passage_end_2x2(dungeon, forward1_left, forward1_right, forward2_left, forward2_right)
     
     # Calculate side walls adjacent to the 2x2 stairs (at forward1 and forward2)
@@ -257,6 +259,7 @@ def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_
     
     dungeon._log(f"    Stairs {stairs_type} capping at {wall_left}, {wall_right}, "
                  f"sides {cap_side_left}, {cap_side_right}")
+    # Place and explore capping walls
     for pos in [wall_left, wall_right, cap_side_left, cap_side_right]:
         dungeon.grid[pos] = dungeon.TileType.WALL
         dungeon.explored.add(pos)
