@@ -223,6 +223,8 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
         turn_side_offset = (1, 0) if turn_dir == (-1, 0) else (-1, 0)
     elif direction == (1, 0):  # East passage turning South/North
         # Wall on opposite side (North for right/South, South for left/North)
+        # When turning South (right), wall on North side (y-1)
+        # When turning North (left), wall on South side (y+1)
         turn_side_offset = (0, -1) if turn_dir == (0, 1) else (0, 1)
     else:  # West (-1,0) passage turning North/South
         # Wall on opposite side (South for right/North, North for left/South)
@@ -231,22 +233,21 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     # Place side walls on the outer edge of the turn (only on the side opposite to turn)
     # For vertical passages turning horizontal: only wall the left tiles for right turns,
     # or right tiles for left turns
-    # For horizontal passages turning vertical: only wall the lower tiles for right turns,
-    # or upper tiles for left turns
+    # For horizontal passages turning vertical: both tiles in the target row need walls
     if direction in [(0, -1), (0, 1)]:  # Vertical passage turning horizontal
         if turn_dir == (1, 0):  # Turning East (right from North, left from South)
-            # Wall on West side - only left tiles
+            # Wall on West side - both left tiles
             wall_tiles = [forward1_left, forward2_left]
         else:  # Turning West (left from North, right from South)
-            # Wall on East side - only right tiles
+            # Wall on East side - both right tiles
             wall_tiles = [forward1_right, forward2_right]
     else:  # Horizontal passage turning vertical
-        if turn_dir == (0, 1):  # Turning South (right from East, left from West)
-            # Wall on North side - only upper tiles (lower y)
-            wall_tiles = [forward1_left, forward1_right] if direction == (1, 0) else [forward2_left, forward2_right]
-        else:  # Turning North (left from East, right from West)
-            # Wall on South side - only lower tiles (higher y)
-            wall_tiles = [forward2_left, forward2_right] if direction == (1, 0) else [forward1_left, forward1_right]
+        # For horizontal passages, left and right are at different Y coordinates
+        # We need to wall both tiles that are on the outer edge (same row)
+        if turn_dir == (0, 1):  # Turning South - wall the upper row (lower y, which is left)
+            wall_tiles = [forward1_left, forward2_left]
+        else:  # Turning North - wall the lower row (higher y, which is right)
+            wall_tiles = [forward1_right, forward2_right]
     
     for pos in wall_tiles:
         outer_wall = (pos[0] + turn_side_offset[0], pos[1] + turn_side_offset[1])
