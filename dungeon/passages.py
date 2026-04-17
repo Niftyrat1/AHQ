@@ -140,21 +140,28 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
         dungeon._log(f"    Collision detected, terminating passage at wall without creating end")
         return passage_tiles
 
-    # Roll for passage features (2D12) - once per passage
+    # Roll for passage features (2D12)
     feature_roll = random.randint(1, 12) + random.randint(1, 12)
-
-    # Passage Features Table:
-    # 2-4: Wandering monsters
+    # 2-4 and 22-24: Wandering monsters
     # 5-15: Nothing
-    # 16-19: Door (side wall)
-    # 20-24: Nothing (handled by passage end roll)
-    if 2 <= feature_roll <= 4:
-        # Wandering monsters - mark random tile in passage
+    # 16-19: One door
+    # 20-21: Two doors
+
+    if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
         if passage_tiles:
-            monster_tile = random.choice(passage_tiles)
-            dungeon.wandering_monsters.add(monster_tile)
+            from monster import roll_lair_encounter
+            mid = (len(passage_tiles) // 4) * 2
+            for i, monster_id in enumerate(roll_lair_encounter()):
+                idx = min(mid + i * 2, len(passage_tiles) - 2)
+                pos = passage_tiles[idx]
+                if pos not in dungeon.monsters:
+                    dungeon.monsters[pos] = monster_id
+
     elif 16 <= feature_roll <= 19:
-        # Door on side wall - find valid position
+        _place_side_door(dungeon, passage_tiles, direction)
+
+    elif 20 <= feature_roll <= 21:
+        _place_side_door(dungeon, passage_tiles, direction)
         _place_side_door(dungeon, passage_tiles, direction)
 
     # Roll for passage end (2D12)

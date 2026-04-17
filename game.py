@@ -179,7 +179,32 @@ class GameState:
             self.combat_log.append(f"  Explored tiles within 3 squares: {explored_nearby}")
             monster_ids = roll_lair_encounter()
             self._start_combat_random(monster_ids, trigger_tile=(x, y))
-    
+
+        # Check for pre-placed monsters in passages/rooms
+        triggered = {}
+        to_check = set()
+        for pos in list(self.dungeon.monsters.keys()):
+            if abs(pos[0] - x) + abs(pos[1] - y) <= 1:
+                to_check.add(pos)
+
+        checked = set()
+        while to_check:
+            p = to_check.pop()
+            if p in checked:
+                continue
+            checked.add(p)
+            if p in self.dungeon.monsters:
+                triggered[p] = self.dungeon.monsters.pop(p)
+                for dp in [(0,1),(0,-1),(1,0),(-1,0)]:
+                    neighbour = (p[0]+dp[0], p[1]+dp[1])
+                    if neighbour in self.dungeon.monsters and neighbour not in checked:
+                        to_check.add(neighbour)
+
+        if triggered:
+            self.combat_log.append("Monsters encountered!")
+            self._start_combat_with_positions(list(triggered.items()))
+            return
+
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""
         if hero.is_dead or hero.is_ko or monster.is_dead:
