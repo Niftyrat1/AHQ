@@ -32,10 +32,13 @@ def _is_valid_door_position(dungeon: "Dungeon", x: int, y: int,
 
 def generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
                   entrance_dir: Tuple[int, int], from_passage: bool = False):
-    """Generate a room beyond a door."""
+    """Generate a room beyond a door.
+
+    The door tile is shared with the room wall — the room's bounding box
+    starts AT the door tile so no gap appears between door and room.
+    """
     roll = random.randint(1, 12)
-    
-    # Room sizes are interior dimensions
+
     if roll <= 6:
         room_type = "normal"
         int_width, int_height = 5, 5
@@ -45,59 +48,71 @@ def generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     else:
         room_type = "large"
         int_width, int_height = 11, 5
-    
+
     # Total size including walls
     total_width = int_width + 2
     total_height = int_height + 2
-    
-    # Determine room position based on entrance direction
-    if entrance_dir == (0, -1):  # North (door is at bottom)
-        start_x = door_x - int_width // 2
-        start_y = door_y - int_height
-    elif entrance_dir == (0, 1):  # South (door is at top)
-        start_x = door_x - int_width // 2
-        start_y = door_y + 1
-    elif entrance_dir == (1, 0):  # East (door is at left)
-        start_x = door_x + 1
-        start_y = door_y - int_height // 2
-    else:  # West (door is at right)
-        start_x = door_x - int_width
-        start_y = door_y - int_height // 2
-    
+
+    # The door tile sits on the wall of the room.
+    # We position the room so that the wall containing the door aligns with door_x/door_y.
+    #
+    # entrance_dir is the direction FROM the passage INTO the room.
+    # The entry wall of the room faces opposite to entrance_dir.
+    #
+    # East (1,0):  door is on the west wall  → start_x = door_x,     start_y = door_y - int_height//2 - 1
+    # West (-1,0): door is on the east wall  → start_x = door_x - total_width + 1, start_y = door_y - int_height//2 - 1
+    # South (0,1): door is on the north wall → start_x = door_x - int_width//2 - 1, start_y = door_y
+    # North (0,-1):door is on the south wall → start_x = door_x - int_width//2 - 1, start_y = door_y - total_height + 1
+
+    if entrance_dir == (1, 0):   # East — door on west wall of room
+        start_x = door_x
+        start_y = door_y - int_height // 2 - 1
+    elif entrance_dir == (-1, 0):  # West — door on east wall of room
+        start_x = door_x - total_width + 1
+        start_y = door_y - int_height // 2 - 1
+    elif entrance_dir == (0, 1):   # South — door on north wall of room
+        start_x = door_x - int_width // 2 - 1
+        start_y = door_y
+    else:                          # North — door on south wall of room
+        start_x = door_x - int_width // 2 - 1
+        start_y = door_y - total_height + 1
+
     room_tiles: Set[Tuple[int, int]] = set()
-    
-    # Generate room
+
     for dy in range(total_height):
         for dx in range(total_width):
             x = start_x + dx
             y = start_y + dy
-            
-            # Check if it's a wall (perimeter)
+
             is_wall = dx == 0 or dx == total_width - 1 or dy == 0 or dy == total_height - 1
-            
-            # Don't overwrite the entrance door
+
+            # The door tile is already placed — don't overwrite it
             if (x, y) == (door_x, door_y):
                 continue
-            
+
             if is_wall:
-                # Only place wall if unexplored
                 if dungeon.get_tile(x, y) == dungeon.TileType.UNEXPLORED:
                     dungeon.grid[(x, y)] = dungeon.TileType.WALL
             else:
-                # Interior floor
                 dungeon.grid[(x, y)] = dungeon.TileType.FLOOR
                 room_tiles.add((x, y))
                 dungeon.explored.add((x, y))
-    
-    # Store room
+
+    # Also explore the door tile and all wall tiles so the room appears immediately
+    dungeon.explored.add((door_x, door_y))
+    for dy in range(total_height):
+        for dx in range(total_width):
+            x = start_x + dx
+            y = start_y + dy
+            dungeon.explored.add((x, y))
+
     dungeon.rooms.append(room_tiles)
     dungeon._log(f"    Generated {room_type} room at ({start_x}, {start_y}) "
                  f"size {total_width}x{total_height}")
-    
-    # Place doors and passages
-    _add_room_exits(dungeon, start_x, start_y, total_width, total_height, 
+
+    _add_room_exits(dungeon, start_x, start_y, total_width, total_height,
                     door_x, door_y, entrance_dir)
-    
+
     return room_tiles
 
 
@@ -160,6 +175,6 @@ def _add_room_exits(dungeon: "Dungeon", start_x: int, start_y: int,
     
     for door_x, door_y, door_dir in potential_doors[:num_exits]:
         dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
-        dungeon.doors.append((door_x, door_y))
+        dungeon.doors[(door_x, door_y)] = {'is_open': False, 'from_room': True}
         dungeon._log(f"      Door at ({door_x}, {door_y})")
         exits_placed += 1
