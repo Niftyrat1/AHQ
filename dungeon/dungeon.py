@@ -197,23 +197,20 @@ class Dungeon:
         from .generator import generate_passage_from
         
         pos = (x, y)
-        self._log(f"check_and_generate_junction called at {pos}")
-        self._log(f"  pending_junctions: {list(self.pending_junctions.keys())}")
         
         if not hasattr(self, 'pending_junctions'):
-            self._log(f"  No pending_junctions attribute")
             return False
         
         # Only trigger on exact junction positions (the 2x2 floor tiles)
         if pos not in self.pending_junctions:
-            self._log(f"  No junction at exact position, doing normal exploration")
             self._explore_from(x, y)
             return False
         
-        self._log(f"  Found junction at exact position {pos}")
-        
         # Handle backward compatibility for different pending_junctions formats
         junction_data = self.pending_junctions[pos]
+        
+        # Debug: Log what we found
+        self._log(f"    Junction triggered at {pos}, data: {junction_data}")
         if isinstance(junction_data, (tuple, list)):
             # Extract exits from tuple format (backward compatible)
             if isinstance(junction_data, tuple):
@@ -239,6 +236,26 @@ class Dungeon:
         for jt in tiles_to_remove:
             del self.pending_junctions[jt]
         
+        # Find canonical top-left corner of the 2x2 junction
+        # This is the lowest x,y such that all four tiles are in tiles_to_remove
+        junction_origin = pos  # Default to stepped-on tile
+        self._log(f"    tiles_to_remove: {sorted(tiles_to_remove)}")
+        if len(tiles_to_remove) >= 4:
+            # Find the top-left corner (min x, min y where all 4 tiles exist)
+            min_x = min(p[0] for p in tiles_to_remove)
+            min_y = min(p[1] for p in tiles_to_remove)
+            # Check if (min_x, min_y) forms a valid 2x2 with all tiles present
+            corner = (min_x, min_y)
+            self._log(f"    Candidate corner: ({min_x}, {min_y}), corner in tiles: {corner in tiles_to_remove}")
+            if (corner in tiles_to_remove and
+                (min_x + 1, min_y) in tiles_to_remove and
+                (min_x, min_y + 1) in tiles_to_remove and
+                (min_x + 1, min_y + 1) in tiles_to_remove):
+                junction_origin = corner
+        
+        origin_x, origin_y = junction_origin
+        self._log(f"    Junction origin: ({origin_x}, {origin_y}), generating passages for exits: {exits}")
+        
         if len(exits) == 1:
             junc_type = "Turn/Continue"
         elif len(exits) == 2:
@@ -261,23 +278,19 @@ class Dungeon:
                 left_offset, right_offset = (-1, 0), (1, 0)
             else:  # East/West
                 left_offset, right_offset = (0, -1), (0, 1)
-            
+
             # Remove walls at both positions for 2-wide passage
             for offset in [left_offset, right_offset]:
-                wall_x = x + direction[0] + offset[0]
-                wall_y = y + direction[1] + offset[1]
+                wall_x = origin_x + direction[0] + offset[0]
+                wall_y = origin_y + direction[1] + offset[1]
                 tile = self.get_tile(wall_x, wall_y)
                 if tile == TileType.WALL:
                     # Always remove passage-blocking walls (not room walls)
                     del self.grid[(wall_x, wall_y)]
-        
-        self._log(f"  Generating passages for exits: {exits}")
 
         all_passage_tiles = []
         for direction in exits:
-            self._log(f"  Generating passage from {pos} in direction {direction}")
-            passage_tiles = generate_passage_from(self, pos[0], pos[1], direction, from_room=False)
-            self._log(f"  Generated {len(passage_tiles)} tiles")
+            passage_tiles = generate_passage_from(self, origin_x, origin_y, direction)
             all_passage_tiles.extend(passage_tiles)
 
         # Explicitly explore all generated passage tiles and their adjacent walls
@@ -467,9 +480,9 @@ class Dungeon:
                 generate_passage_from(self, x, y, direction)
                 self._explore_from(x, y)
             else:
-                _generate_room(self, gen_x, gen_y, direction, from_passage=False)
+                _generate_room(self, x, y, direction, from_passage=False)
         else:
-            _generate_room(self, gen_x, gen_y, direction, from_passage=False)
+            _generate_room(self, x, y, direction, from_passage=False)
         
         return True
     

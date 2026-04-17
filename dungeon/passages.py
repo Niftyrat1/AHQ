@@ -51,10 +51,24 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
         wall_offset_a = (0, -1)  # Above track A
         wall_offset_b = (0, 1)   # Below track B
 
-    last_a = last_b = None
+    # Place initial tiles at junction (no collision check for first tiles)
+    dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
+    passage_tiles.append((track_a_x, track_a_y))
+    last_a = (track_a_x, track_a_y)
+    tiles_placed = 1
+    wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
+    if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+        dungeon.grid[wall_a] = dungeon.TileType.WALL
+
+    dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
+    passage_tiles.append((track_b_x, track_b_y))
+    last_b = (track_b_x, track_b_y)
+    tiles_placed = 2
+    wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
+    if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+        dungeon.grid[wall_b] = dungeon.TileType.WALL
 
     collision_detected = False
-    tiles_placed = 0
     for section_idx in range(sections):
         if collision_detected:
             break
@@ -66,44 +80,55 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             next_b_y = track_b_y + direction[1]
 
             # Check for collision with existing tiles (only after placing first tiles)
-            # First tiles may overlap with existing passage floor - that's OK
+            # Allow connecting to existing FLOOR/PASSAGE_END but stop at solid walls
+            skip_a = False
+            skip_b = False
             if tiles_placed >= 2:
                 tile_a = dungeon.grid.get((next_a_x, next_a_y), dungeon.TileType.UNEXPLORED)
                 tile_b = dungeon.grid.get((next_b_x, next_b_y), dungeon.TileType.UNEXPLORED)
 
-                # Stop if we would overlap with anything other than unexplored
-                collision_tiles = (dungeon.TileType.FLOOR, dungeon.TileType.PASSAGE_END,
-                                   dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
-                                   dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
-                if tile_a in collision_tiles or tile_b in collision_tiles:
-                    dungeon._log(f"    Collision detected at ({next_a_x},{next_a_y})={tile_a} or ({next_b_x},{next_b_y})={tile_b}, stopping passage")
+                # Hard collision tiles that completely block passage
+                blocking_tiles = (dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
+                                  dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
+
+                # If both tracks would hit blocking tiles, stop
+                if tile_a in blocking_tiles and tile_b in blocking_tiles:
                     collision_detected = True
                     break
+
+                # If one track hits a blocking tile, skip that track only
+                if tile_a in blocking_tiles:
+                    skip_a = True
+                if tile_b in blocking_tiles:
+                    skip_b = True
 
             # Step both tracks forward by direction
             track_a_x, track_a_y = next_a_x, next_a_y
             track_b_x, track_b_y = next_b_x, next_b_y
 
-            # Place floor tiles for both tracks
-            dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
-            dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
-            passage_tiles.append((track_a_x, track_a_y))
-            passage_tiles.append((track_b_x, track_b_y))
-            tiles_placed += 2
+            if not skip_a:
+                dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
+                passage_tiles.append((track_a_x, track_a_y))
+                last_a = (track_a_x, track_a_y)
+                tiles_placed += 1
+                if tiles_placed <= 5:
+                    dungeon._log(f"      Passage tile A: ({track_a_x}, {track_a_y})")
+                # Place wall on passage side
+                wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
+                if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+                    dungeon.grid[wall_a] = dungeon.TileType.WALL
 
-            # Track last positions for passage end calculation
-            last_a = (track_a_x, track_a_y)
-            last_b = (track_b_x, track_b_y)
-
-            # Place walls on passage sides
-            wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
-            wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
-
-            # Only place wall if not already something there
-            if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
-                dungeon.grid[wall_a] = dungeon.TileType.WALL
-            if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
-                dungeon.grid[wall_b] = dungeon.TileType.WALL
+            if not skip_b:
+                dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
+                passage_tiles.append((track_b_x, track_b_y))
+                last_b = (track_b_x, track_b_y)
+                tiles_placed += 1
+                if tiles_placed <= 4:
+                    dungeon._log(f"      Passage tile B: ({track_b_x}, {track_b_y})")
+                # Place wall on passage side
+                wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
+                if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+                    dungeon.grid[wall_b] = dungeon.TileType.WALL
 
     # Check if we actually generated any tiles
     if not passage_tiles or last_a is None or last_b is None:
@@ -115,16 +140,69 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
         dungeon._log(f"    Collision detected, terminating passage at wall without creating end")
         return passage_tiles
 
-    dungeon._log(f"    Passage ends at {last_a} and {last_b}, roll: {roll}")
+    # Roll for passage features (2D12) - once per passage
+    feature_roll = random.randint(1, 12) + random.randint(1, 12)
+
+    # Passage Features Table:
+    # 2-4: Wandering monsters
+    # 5-15: Nothing
+    # 16-19: Door (side wall)
+    # 20-24: Nothing (handled by passage end roll)
+    if 2 <= feature_roll <= 4:
+        # Wandering monsters - mark random tile in passage
+        if passage_tiles:
+            monster_tile = random.choice(passage_tiles)
+            dungeon.wandering_monsters.add(monster_tile)
+    elif 16 <= feature_roll <= 19:
+        # Door on side wall - find valid position
+        _place_side_door(dungeon, passage_tiles, direction)
 
     # Roll for passage end (2D12)
     end_roll = random.randint(2, 24)
-    dungeon._log(f"    Passage feature roll: {end_roll}")
 
     # Resolve passage end
     resolve_passage_end(dungeon, last_a, last_b, direction, end_roll)
 
-    dungeon._log(f"    End tile check at {last_a}: {dungeon.get_tile(*last_a)}")
-    dungeon._log(f"  Generated {len(passage_tiles)} tiles")
-
     return passage_tiles
+
+
+def _place_side_door(dungeon: "Dungeon", passage_tiles: List[Tuple[int, int]], direction: Tuple[int, int]):
+    """Place a door on a side wall of the passage.
+
+    Finds a valid position along the passage and places a closed door.
+    The door is placed perpendicular to the passage direction.
+    """
+    from .passage_ends import _get_both_perpendicular
+
+    perp_dirs = _get_both_perpendicular(direction)
+
+    # Try each passage tile to find a valid door position
+    valid_positions = []
+    for (tx, ty) in passage_tiles:
+        for perp in perp_dirs:
+            door_x = tx + perp[0]
+            door_y = ty + perp[1]
+
+            # Check if this position is valid for a door
+            # Must be a WALL separating passage from unexplored space
+            door_tile = dungeon.get_tile(door_x, door_y)
+            if door_tile != dungeon.TileType.WALL:
+                continue
+
+            # Check that door connects passage to unexplored space
+            other_side_x = door_x + perp[0]
+            other_side_y = door_y + perp[1]
+            other_side_tile = dungeon.get_tile(other_side_x, other_side_y)
+
+            # Door should lead to unexplored space (for rooms)
+            if other_side_tile == dungeon.TileType.UNEXPLORED:
+                valid_positions.append((door_x, door_y, perp))
+
+    if valid_positions:
+        # Pick a random valid position
+        door_x, door_y, door_dir = random.choice(valid_positions)
+        dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
+        dungeon.doors[(door_x, door_y)] = {'is_open': False, 'from_room': False}
+        dungeon._log(f"    Door placed at ({door_x}, {door_y})")
+    else:
+        dungeon._log(f"    No valid door position found")
