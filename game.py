@@ -473,7 +473,6 @@ class GameState:
         if self.dungeon.monsters:
             monster_data = list(self.dungeon.monsters.items())  # [(pos, id), ...]
             self.combat_log.append(f"  Found monsters: {monster_data}")
-            self.dungeon.monsters.clear()  # Clear from dungeon, will spawn in game
             if monster_data:
                 self._start_combat_with_positions(monster_data)
         

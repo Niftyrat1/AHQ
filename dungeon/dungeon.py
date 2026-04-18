@@ -457,10 +457,14 @@ class Dungeon:
         target_y = y + direction[1]
         
         target_tile = self.get_tile(target_x, target_y)
-        if target_tile in (TileType.FLOOR, TileType.STAIRS_DOWN, TileType.STAIRS_OUT):
+        
+        # If target is already explored (floor, wall, stairs, etc.), just open the door
+        # Don't try to generate anything - this handles doors placed on existing walls
+        if target_tile != TileType.UNEXPLORED:
             door_info = self.doors[(x, y)]
             door_info["is_open"] = True
             self.grid[(x, y)] = TileType.DOOR_OPEN
+            self.explored.add((x, y))
             return True
         
         door_info = self.doors[(x, y)]
@@ -473,11 +477,12 @@ class Dungeon:
         
         from_room = door_info.get("from_room", True)
         
-        
         if from_room:
             roll = random.randint(1, 12)
             if roll <= 6:
-                generate_passage_from(self, x, y, direction)
+                # Generate passage starting one tile beyond the door (gen_x, gen_y)
+                # Don't pass door position or it will overwrite the door
+                generate_passage_from(self, gen_x, gen_y, direction)
                 self._explore_from(x, y)
             else:
                 _generate_room(self, x, y, direction, from_passage=False)

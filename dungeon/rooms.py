@@ -31,15 +31,75 @@ def _is_valid_door_position(dungeon: "Dungeon", x: int, y: int,
 
 
 def _check_room_fit(dungeon: "Dungeon", start_x: int, start_y: int,
-                    total_width: int, total_height: int) -> bool:
-    """Check if room area is completely unexplored (no overlap)."""
+                    total_width: int, total_height: int,
+                    door_x: int = None, door_y: int = None) -> bool:
+    """Check if room fits: interior must be unexplored, walls can overlap walls/doors."""
     for dy in range(total_height):
         for dx in range(total_width):
             x = start_x + dx
             y = start_y + dy
-            if dungeon.get_tile(x, y) != dungeon.TileType.UNEXPLORED:
-                return False
+            tile = dungeon.get_tile(x, y)
+            is_wall = dx == 0 or dx == total_width - 1 or dy == 0 or dy == total_height - 1
+            
+            # Skip the entrance door tile
+            if door_x is not None and x == door_x and y == door_y:
+                continue
+            
+            if is_wall:
+                # Walls can be on unexplored, existing walls, or doors
+                if tile not in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL,
+                               dungeon.TileType.DOOR_CLOSED, dungeon.TileType.DOOR_OPEN):
+                    return False
+            else:
+                # Interior must be completely unexplored
+                if tile != dungeon.TileType.UNEXPLORED:
+                    return False
     return True
+
+
+def _try_room_position(dungeon: "Dungeon", door_x: int, door_y: int,
+                        entrance_dir: Tuple[int, int], int_width: int, int_height: int,
+                        room_type: str) -> bool:
+    """Try to place room with sliding and rotation. Returns True if placed."""
+    total_width = int_width + 2
+    total_height = int_height + 2
+    
+    # Calculate base position (centered on door)
+    if entrance_dir == (1, 0):   # East — door on west wall
+        base_x = door_x
+        base_y = door_y - int_height // 2 - 1
+        slide_dir = (0, 1)  # Slide along Y axis
+        max_slide = int_height // 2
+    elif entrance_dir == (-1, 0):  # West — door on east wall
+        base_x = door_x - total_width + 1
+        base_y = door_y - int_height // 2 - 1
+        slide_dir = (0, 1)  # Slide along Y axis
+        max_slide = int_height // 2
+    elif entrance_dir == (0, 1):   # South — door on north wall
+        base_x = door_x - int_width // 2 - 1
+        base_y = door_y
+        slide_dir = (1, 0)  # Slide along X axis
+        max_slide = int_width // 2
+    else:                          # North — door on south wall
+        base_x = door_x - int_width // 2 - 1
+        base_y = door_y - total_height + 1
+        slide_dir = (1, 0)  # Slide along X axis
+        max_slide = int_width // 2
+    
+    # Try positions: centered, slide +1, slide -1, slide +2, slide -2, etc.
+    for slide in range(0, max_slide + 1):
+        for direction in [1, -1] if slide > 0 else [0]:
+            offset = slide * direction
+            try_x = base_x + slide_dir[0] * offset
+            try_y = base_y + slide_dir[1] * offset
+            
+            if _check_room_fit(dungeon, try_x, try_y, total_width, total_height,
+                              door_x=door_x, door_y=door_y):
+                _place_room(dungeon, door_x, door_y, entrance_dir, try_x, try_y,
+                           total_width, total_height, room_type)
+                return True
+    
+    return False
 
 
 def generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
@@ -51,45 +111,34 @@ def generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     
     Per the rules: Do not overlap existing sections. If room is too large,
     use smaller size. If that doesn't fit, the door is a false one.
+    
+    Tries sliding and rotation before falling back to smaller size or false door.
     """
     roll = random.randint(1, 12)
 
     # Determine room sizes to try (large first, then normal if needed)
     if roll <= 6:
-        room_type = "normal"
         sizes_to_try = [(5, 5, "normal")]  # Only normal size
     elif roll <= 11:
         sizes_to_try = [(5, 11, "large"), (5, 5, "normal")]  # Try large, then normal
     else:
         sizes_to_try = [(11, 5, "large"), (5, 5, "normal")]  # Try large, then normal
 
-    # Try each size until one fits
+    # Try each size with sliding and rotation
     for int_width, int_height, room_type in sizes_to_try:
-        total_width = int_width + 2
-        total_height = int_height + 2
-
-        # Calculate room position based on entrance direction
-        if entrance_dir == (1, 0):   # East — door on west wall of room
-            start_x = door_x
-            start_y = door_y - int_height // 2 - 1
-        elif entrance_dir == (-1, 0):  # West — door on east wall of room
-            start_x = door_x - total_width + 1
-            start_y = door_y - int_height // 2 - 1
-        elif entrance_dir == (0, 1):   # South — door on north wall of room
-            start_x = door_x - int_width // 2 - 1
-            start_y = door_y
-        else:                          # North — door on south wall of room
-            start_x = door_x - int_width // 2 - 1
-            start_y = door_y - total_height + 1
-
-        # Check for overlap - room area must be completely unexplored
-        if _check_room_fit(dungeon, start_x, start_y, total_width, total_height):
-            # Found a fit - place the room
-            _place_room(dungeon, door_x, door_y, entrance_dir, start_x, start_y,
-                       total_width, total_height, room_type)
+        # Try original orientation with sliding
+        if _try_room_position(dungeon, door_x, door_y, entrance_dir,
+                             int_width, int_height, room_type):
             return
+        
+        # Try rotated orientation (swap width/height) with sliding
+        if int_width != int_height:  # Only if dimensions differ
+            rotated_type = f"{room_type}_rotated"
+            if _try_room_position(dungeon, door_x, door_y, entrance_dir,
+                                 int_height, int_width, rotated_type):
+                return
 
-    # No size fits - this is a false door per the rules
+    # No size or orientation fits - this is a false door per the rules
     dungeon._log(f"    False door at ({door_x}, {door_y}) - no room fits")
     # Convert door to a wall (false door doesn't lead anywhere)
     dungeon.grid[(door_x, door_y)] = dungeon.TileType.WALL
@@ -112,6 +161,12 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
 
             # The door tile is already placed — don't overwrite it
             if (x, y) == (door_x, door_y):
+                continue
+
+            # Don't overwrite existing walls or doors
+            existing_tile = dungeon.get_tile(x, y)
+            if existing_tile in (dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
+                                  dungeon.TileType.DOOR_OPEN):
                 continue
 
             if is_wall:
