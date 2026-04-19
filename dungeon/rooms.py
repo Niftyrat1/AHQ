@@ -184,7 +184,21 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
             y = start_y + dy
             dungeon.explored.add((x, y))
 
-    dungeon.rooms.append(room_tiles)
+    # Store room data with tracking for searches
+    room_id = len(dungeon.rooms)
+    room_data = {
+        'id': room_id,
+        'interior_tiles': room_tiles,
+        'walls': set(),  # Will be populated by _add_room_exits
+        'start_x': start_x,
+        'start_y': start_y,
+        'width': total_width,
+        'height': total_height,
+        'searched_secrets': False,
+        'searched_treasure': False,
+        'searched_walls': set(),
+    }
+    dungeon.rooms.append(room_data)
     dungeon._log(f"    Generated {room_type} room at ({start_x}, {start_y}) "
                  f"size {total_width}x{total_height}")
 

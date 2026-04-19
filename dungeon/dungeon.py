@@ -26,7 +26,7 @@ class Dungeon:
         self.treasure: Dict[Tuple[int, int], bool] = {}
         self.hero_start = (0, 0)
         self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
-        self.rooms: List[Set[Tuple[int, int]]] = []
+        self.rooms: List[dict] = []
         
         self._create_starting_area()
     
@@ -223,8 +223,8 @@ class Dungeon:
         else:
             exits = []
         
-        # Remove all tiles that share the same exits as this junction
-        # Find all positions with matching exits and remove them all at once
+        # Find the 2x2 junction group containing the stepped-on tile
+        # Only remove tiles from this specific junction, not all tiles with matching exits
         def _get_exits(junction_entry):
             if isinstance(junction_entry, tuple) and len(junction_entry) >= 3:
                 return junction_entry[2]
@@ -232,26 +232,46 @@ class Dungeon:
                 return junction_entry
             return []
         
-        tiles_to_remove = [p for p, e in self.pending_junctions.items() if _get_exits(e) == exits]
-        for jt in tiles_to_remove:
-            del self.pending_junctions[jt]
+        # Find all tiles that form a 2x2 with the stepped-on position
+        # Check all possible corners that could include this tile
+        possible_corners = [
+            pos,  # pos is top-left
+            (pos[0] - 1, pos[1]),  # pos is top-right
+            (pos[0], pos[1] - 1),  # pos is bottom-left
+            (pos[0] - 1, pos[1] - 1),  # pos is bottom-right
+        ]
         
-        # Find canonical top-left corner of the 2x2 junction
-        # This is the lowest x,y such that all four tiles are in tiles_to_remove
+        tiles_to_remove = []
         junction_origin = pos  # Default to stepped-on tile
-        self._log(f"    tiles_to_remove: {sorted(tiles_to_remove)}")
-        if len(tiles_to_remove) >= 4:
-            # Find the top-left corner (min x, min y where all 4 tiles exist)
-            min_x = min(p[0] for p in tiles_to_remove)
-            min_y = min(p[1] for p in tiles_to_remove)
-            # Check if (min_x, min_y) forms a valid 2x2 with all tiles present
-            corner = (min_x, min_y)
-            self._log(f"    Candidate corner: ({min_x}, {min_y}), corner in tiles: {corner in tiles_to_remove}")
-            if (corner in tiles_to_remove and
-                (min_x + 1, min_y) in tiles_to_remove and
-                (min_x, min_y + 1) in tiles_to_remove and
-                (min_x + 1, min_y + 1) in tiles_to_remove):
-                junction_origin = corner
+        
+        for corner in possible_corners:
+            # Check if this corner forms a valid 2x2 junction
+            if (corner in self.pending_junctions and
+                (corner[0] + 1, corner[1]) in self.pending_junctions and
+                (corner[0], corner[1] + 1) in self.pending_junctions and
+                (corner[0] + 1, corner[1] + 1) in self.pending_junctions):
+                
+                # Verify all 4 tiles have the same exits
+                corner_exits = _get_exits(self.pending_junctions[corner])
+                if (corner_exits == _get_exits(self.pending_junctions[(corner[0] + 1, corner[1])]) and
+                    corner_exits == _get_exits(self.pending_junctions[(corner[0], corner[1] + 1)]) and
+                    corner_exits == _get_exits(self.pending_junctions[(corner[0] + 1, corner[1] + 1)])):
+                    
+                    # Found the correct 2x2 junction
+                    junction_origin = corner
+                    tiles_to_remove = [
+                        corner,
+                        (corner[0] + 1, corner[1]),
+                        (corner[0], corner[1] + 1),
+                        (corner[0] + 1, corner[1] + 1)
+                    ]
+                    self._log(f"    tiles_to_remove: {sorted(tiles_to_remove)}")
+                    break
+        
+        # Remove only the tiles from this junction
+        for jt in tiles_to_remove:
+            if jt in self.pending_junctions:
+                del self.pending_junctions[jt]
         
         origin_x, origin_y = junction_origin
         self._log(f"    Junction origin: ({origin_x}, {origin_y}), generating passages for exits: {exits}")

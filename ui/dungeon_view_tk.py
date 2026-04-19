@@ -17,7 +17,8 @@ class DungeonViewTk:
     """Dungeon exploration view using tkinter canvas."""
     
     def __init__(self, root: tk.Tk, on_hero_move=None, on_hero_attack=None,
-                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None, on_open_door=None, on_get_game_state=None):
+                 on_end_phase=None, on_exit_dungeon=None, on_stairs_down=None, on_get_hero_acted=None, on_get_hero_status=None, on_open_door=None, on_get_game_state=None,
+                 on_get_available_actions=None, on_execute_action=None):
         self.root = root
         self.on_hero_move = on_hero_move
         self.on_hero_attack = on_hero_attack
@@ -29,6 +30,8 @@ class DungeonViewTk:
         self.on_open_door = on_open_door
         self.on_get_monsters = None
         self.on_get_game_state = on_get_game_state
+        self.on_get_available_actions = on_get_available_actions
+        self.on_execute_action = on_execute_action
         
         self.dungeon: Optional[Dungeon] = None
         self.heroes: List[Hero] = []
@@ -79,6 +82,13 @@ class DungeonViewTk:
         self.return_btn = tk.Button(self.left_frame, text="Return to Tavern",
                                    command=self._on_return_to_tavern, bg="#666", fg="white")
         self.return_btn.pack(fill=tk.X, pady=5)
+        
+        # Action buttons section
+        tk.Label(self.left_frame, text="Actions", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#ddd").pack(anchor=tk.W, pady=(10, 0))
+        
+        self.action_frame = tk.Frame(self.left_frame, bg="#2a2a35")
+        self.action_frame.pack(fill=tk.X, pady=5)
+        self.action_buttons: List[tk.Button] = []
         
         # Monsters section
         tk.Label(self.left_frame, text="Monsters", font=("Arial", 12, "bold"), bg="#2a2a35", fg="#f44").pack(anchor=tk.W, pady=(10, 0))
@@ -542,6 +552,43 @@ class DungeonViewTk:
             self.end_phase_btn.config(text="End Hero Phase", state=tk.NORMAL)
         else:
             self.end_phase_btn.config(text="GM Phase...", state=tk.DISABLED)
+        
+        # Update action buttons based on selected hero
+        self._update_action_buttons()
+    
+    def _update_action_buttons(self):
+        """Update available action buttons based on selected hero."""
+        # Clear existing buttons
+        for btn in self.action_buttons:
+            btn.destroy()
+        self.action_buttons = []
+        
+        if not self.selected_hero or not self.dungeon:
+            return
+        
+        if not self.on_get_available_actions:
+            return
+        
+        # Get available actions from game
+        actions = self.on_get_available_actions(self.selected_hero.id)
+        
+        # Create button for each action
+        for action_class in actions:
+            btn = tk.Button(
+                self.action_frame,
+                text=f"{action_class.icon} {action_class.name}",
+                command=lambda cls=action_class: self._on_action_click(cls),
+                bg="#4a4a5a",
+                fg="white",
+                font=("Arial", 9)
+            )
+            btn.pack(fill=tk.X, pady=2)
+            self.action_buttons.append(btn)
+    
+    def _on_action_click(self, action_class):
+        """Handle action button click."""
+        if self.on_execute_action and self.selected_hero:
+            self.on_execute_action(self.selected_hero.id, action_class)
     
     def _show_movement_range(self, hero):
         """Highlight tiles the hero can move to."""

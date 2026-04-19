@@ -136,6 +136,40 @@ def main():
         has_attacked = hero_id in game.hero_has_attacked
         return (remaining, has_attacked)
     
+    def on_get_available_actions(hero_id):
+        """Get available dungeon actions for hero."""
+        from actions import get_available_actions
+        
+        hero = next((h for h in game.party if h.id == hero_id), None)
+        if not hero or not game.dungeon:
+            return []
+        
+        return get_available_actions(hero, game.dungeon)
+    
+    def on_execute_action(hero_id, action_class):
+        """Execute a dungeon action."""
+        hero = next((h for h in game.party if h.id == hero_id), None)
+        if not hero or not game.dungeon:
+            return
+        
+        # Execute the action
+        result = action_class.execute(hero, game.dungeon, game)
+        
+        # Log result
+        dungeon_view.add_log_message(result.message)
+        
+        # End hero turn if action consumed it
+        if result.end_turn:
+            game.hero_movement_remaining[hero_id] = 0
+        
+        # Trigger combat if needed
+        if result.trigger_combat:
+            dungeon_view.add_log_message("Monsters detected! Combat begins!")
+            # Combat will be triggered on next update
+        
+        # Update UI
+        dungeon_view.update_state()
+    
     tavern.on_begin_quest = on_begin_quest
     
     def switch_to_dungeon():
@@ -154,6 +188,8 @@ def main():
         dungeon_view.on_get_monsters = lambda: game.monsters
         dungeon_view.on_open_door = game.open_door
         dungeon_view.on_get_game_state = game.get_game_state
+        dungeon_view.on_get_available_actions = on_get_available_actions
+        dungeon_view.on_execute_action = on_execute_action
         dungeon_view.setup_dungeon(game.dungeon, game.party)
         dungeon_view.update_state()
     
