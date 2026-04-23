@@ -3,7 +3,7 @@ Core Dungeon class for Advanced HeroQuest.
 """
 import random
 import json
-from typing import List, Tuple, Optional, Dict, Set
+from typing import List, Tuple, Optional, Dict, Set, Callable
 from pathlib import Path
 
 from .tiles import TileType
@@ -14,19 +14,23 @@ class Dungeon:
     
     TileType = TileType  # Expose for convenience
     
-    def __init__(self, size: int = 100, level: int = 1, debug_log: Optional[list] = None):
+    def __init__(self, size: int = 100, level: int = 1, debug_log: Optional[list] = None,
+                 monster_library = None):
         self.size = size
         self.level = level
         self.grid: Dict[Tuple[int, int], TileType] = {}
         self.explored: Set[Tuple[int, int]] = set()
         self.doors: Dict[Tuple[int, int], dict] = {}
-        self.monsters: Dict[Tuple[int, int], str] = {}
         self.wandering_monsters: Set[Tuple[int, int]] = set()
         self.debug_log = debug_log
         self.treasure: Dict[Tuple[int, int], bool] = {}
         self.hero_start = (0, 0)
         self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
         self.rooms: List[dict] = []
+        
+        # Monster placement callback system
+        self.monster_library = monster_library
+        self._on_monster_placed: Optional[Callable] = None
         
         self._create_starting_area()
     
@@ -209,8 +213,6 @@ class Dungeon:
         # Handle backward compatibility for different pending_junctions formats
         junction_data = self.pending_junctions[pos]
         
-        # Debug: Log what we found
-        self._log(f"    Junction triggered at {pos}, data: {junction_data}")
         if isinstance(junction_data, (tuple, list)):
             # Extract exits from tuple format (backward compatible)
             if isinstance(junction_data, tuple):
@@ -265,7 +267,6 @@ class Dungeon:
                         (corner[0], corner[1] + 1),
                         (corner[0] + 1, corner[1] + 1)
                     ]
-                    self._log(f"    tiles_to_remove: {sorted(tiles_to_remove)}")
                     break
         
         # Remove only the tiles from this junction
@@ -274,7 +275,6 @@ class Dungeon:
                 del self.pending_junctions[jt]
         
         origin_x, origin_y = junction_origin
-        self._log(f"    Junction origin: ({origin_x}, {origin_y}), generating passages for exits: {exits}")
         
         if len(exits) == 1:
             junc_type = "Turn/Continue"
@@ -583,14 +583,14 @@ class Dungeon:
         
         return True
     
-    def get_monster_at(self, x: int, y: int) -> Optional[str]:
-        """Get monster ID at position."""
-        return self.monsters.get((x, y))
-    
-    def remove_monster(self, x: int, y: int):
-        """Remove monster from position."""
-        if (x, y) in self.monsters:
-            del self.monsters[(x, y)]
+    def _place_monster(self, monster_id: str, x: int, y: int):
+        """Instantiate and register a monster via the game's monster list."""
+        if self.monster_library and self._on_monster_placed:
+            monster = self.monster_library.create_monster(monster_id)
+            if monster:
+                monster.x = x
+                monster.y = y
+                self._on_monster_placed(monster)
     
     def is_adjacent(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check if two positions are adjacent (Manhattan distance 1)."""
@@ -621,7 +621,6 @@ class Dungeon:
             "grid": {f"{x},{y}": t.name for (x, y), t in self.grid.items()},
             "explored": [f"{x},{y}" for x, y in self.explored],
             "doors": {f"{x},{y}": v for (x, y), v in self.doors.items()},
-            "monsters": {f"{x},{y}": v for (x, y), v in self.monsters.items()},
             "wandering_monsters": [f"{x},{y}" for x, y in self.wandering_monsters],
             "treasure": {f"{x},{y}": v for (x, y), v in self.treasure.items()},
             "hero_start": self.hero_start,
@@ -647,11 +646,6 @@ class Dungeon:
         for key, val in data.get("doors", {}).items():
             x, y = map(int, key.split(","))
             dungeon.doors[(x, y)] = val
-        
-        dungeon.monsters = {}
-        for key, val in data.get("monsters", {}).items():
-            x, y = map(int, key.split(","))
-            dungeon.monsters[(x, y)] = val
         
         dungeon.wandering_monsters = set()
         for pos_str in data.get("wandering_monsters", []):

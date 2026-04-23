@@ -214,7 +214,8 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
         for i, monster_id in enumerate(monster_ids):
             if i >= len(available):
                 break
-            dungeon.monsters[available[i]] = monster_id
+            pos = available[i]
+            dungeon._place_monster(monster_id, pos[0], pos[1])
     elif 11 <= room_roll <= 12:
         # Quest room
         monster_ids = roll_quest_room_encounter()
@@ -223,7 +224,8 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
         for i, monster_id in enumerate(monster_ids):
             if i >= len(available):
                 break
-            dungeon.monsters[available[i]] = monster_id
+            pos = available[i]
+            dungeon._place_monster(monster_id, pos[0], pos[1])
 
     _add_room_exits(dungeon, start_x, start_y, total_width, total_height,
                     door_x, door_y, entrance_dir)

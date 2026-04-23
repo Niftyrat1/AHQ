@@ -111,8 +111,6 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
                 passage_tiles.append((track_a_x, track_a_y))
                 last_a = (track_a_x, track_a_y)
                 tiles_placed += 1
-                if tiles_placed <= 5:
-                    dungeon._log(f"      Passage tile A: ({track_a_x}, {track_a_y})")
                 # Place wall on passage side
                 wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
                 if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
@@ -123,8 +121,6 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
                 passage_tiles.append((track_b_x, track_b_y))
                 last_b = (track_b_x, track_b_y)
                 tiles_placed += 1
-                if tiles_placed <= 4:
-                    dungeon._log(f"      Passage tile B: ({track_b_x}, {track_b_y})")
                 # Place wall on passage side
                 wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
                 if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
@@ -132,12 +128,10 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
 
     # Check if we actually generated any tiles
     if not passage_tiles or last_a is None or last_b is None:
-        dungeon._log(f"    No tiles generated, aborting passage")
         return passage_tiles
 
     # If collision was detected, we hit an existing wall - don't create passage end
     if collision_detected:
-        dungeon._log(f"    Collision detected, terminating passage at wall without creating end")
         return passage_tiles
 
     # Roll for passage features (2D12)
@@ -154,8 +148,7 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             for i, monster_id in enumerate(roll_lair_encounter()):
                 idx = min(mid + i * 2, len(passage_tiles) - 2)
                 pos = passage_tiles[idx]
-                if pos not in dungeon.monsters:
-                    dungeon.monsters[pos] = monster_id
+                dungeon._place_monster(monster_id, pos[0], pos[1])
 
     elif 16 <= feature_roll <= 19:
         _place_side_door(dungeon, passage_tiles, direction)
@@ -210,6 +203,5 @@ def _place_side_door(dungeon: "Dungeon", passage_tiles: List[Tuple[int, int]], d
         door_x, door_y, door_dir = random.choice(valid_positions)
         dungeon.grid[(door_x, door_y)] = dungeon.TileType.DOOR_CLOSED
         dungeon.doors[(door_x, door_y)] = {'is_open': False, 'from_room': False}
-        dungeon._log(f"    Door placed at ({door_x}, {door_y})")
     else:
-        dungeon._log(f"    No valid door position found")
+        pass

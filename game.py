@@ -48,7 +48,10 @@ class GameState:
         self.party = party
         self.monsters = []
         self.dungeon_debug_log = []
-        self.dungeon = Dungeon(level=1, debug_log=self.dungeon_debug_log)
+        self.dungeon = Dungeon(level=1, debug_log=self.dungeon_debug_log, 
+                               monster_library=self.monster_library)
+        # Wire up monster placement callback
+        self.dungeon._on_monster_placed = lambda m: self.monsters.append(m)
         self.mode = "DUNGEON"
         self.current_phase = "EXPLORATION"
         self.hero_phase_active = True
@@ -180,12 +183,12 @@ class GameState:
             monster_ids = roll_lair_encounter()
             self._start_combat_random(monster_ids, trigger_tile=(x, y))
 
-        # Check for pre-placed monsters in passages/rooms
-        triggered = {}
+        # Check for pre-placed monsters in passages/rooms (now stored in self.monsters)
+        triggered = []
         to_check = set()
-        for pos in list(self.dungeon.monsters.keys()):
-            if abs(pos[0] - x) + abs(pos[1] - y) <= 1:
-                to_check.add(pos)
+        for monster in self.monsters:
+            if not monster.is_dead and abs(monster.x - x) + abs(monster.y - y) <= 1:
+                to_check.add((monster.x, monster.y))
 
         checked = set()
         while to_check:
@@ -193,16 +196,19 @@ class GameState:
             if p in checked:
                 continue
             checked.add(p)
-            if p in self.dungeon.monsters:
-                triggered[p] = self.dungeon.monsters.pop(p)
-                for dp in [(0,1),(0,-1),(1,0),(-1,0)]:
-                    neighbour = (p[0]+dp[0], p[1]+dp[1])
-                    if neighbour in self.dungeon.monsters and neighbour not in checked:
-                        to_check.add(neighbour)
+            # Find monster at this position
+            for monster in self.monsters:
+                if not monster.is_dead and monster.x == p[0] and monster.y == p[1]:
+                    if monster not in triggered:
+                        triggered.append(monster)
+                    for dp in [(0,1),(0,-1),(1,0),(-1,0)]:
+                        neighbour = (p[0]+dp[0], p[1]+dp[1])
+                        if neighbour not in checked:
+                            to_check.add(neighbour)
 
         if triggered:
             self.combat_log.append("Monsters encountered!")
-            self._start_combat_with_positions(list(triggered.items()))
+            self._start_combat_with_monsters(triggered)
             return
 
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
@@ -348,6 +354,47 @@ class GameState:
         
         self.save_game()
     
+    def _start_combat_with_monsters(self, monsters: List[Monster]):
+        """Start combat with already-instantiated monsters (from dungeon generation)."""
+        self.current_phase = "COMBAT"
+        self.mode = "COMBAT"
+        
+        # Reset hero actions for new combat round
+        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_has_attacked.clear()
+        
+        # Use the provided monsters (already placed during dungeon generation)
+        # Filter to only include monsters that aren't already in combat
+        existing_ids = {m.instance_id for m in self.monsters}
+        new_monsters = [m for m in monsters if m.instance_id not in existing_ids]
+        self.monsters.extend(new_monsters)
+        
+        self.combat_log.append(f"Combat started with {len(new_monsters)} monsters!")
+        
+        # Surprise roll
+        has_elf = any(h.race == "Elf" for h in self.party)
+        has_sentry = any(m.is_sentry for m in self.monsters)
+        
+        winner, hero_roll, gm_roll = do_surprise_roll(has_elf, has_sentry)
+        
+        self.combat_log.append(f"Surprise roll! Heroes: {hero_roll}, GM: {gm_roll}")
+        
+        if winner == "gm":
+            self.combat_log.append("Monsters surprise the heroes!")
+            self.combat_log.append("Heroes lose first turn!")
+            self.hero_phase_active = False
+        elif winner == "heroes":
+            self.combat_log.append("Heroes win surprise!")
+        else:
+            self.combat_log.append("Neither side surprised!")
+        
+        # If monsters won surprise, run GM phase first
+        if winner == "gm":
+            self._run_combat_gm_phase()
+            self.hero_phase_active = True
+        
+        self.save_game()
+    
     def _start_combat_random(self, monster_ids: List[str], trigger_tile: Optional[Tuple[int, int]] = None):
         """Start combat with monsters at positions following WHQ placement rules."""
         self.current_phase = "COMBAT"
@@ -470,11 +517,12 @@ class GameState:
         self.combat_log.append(f"Door opened at ({x}, {y})")
         
         # Check if room has monsters placed by dungeon generation
-        if self.dungeon.monsters:
-            monster_data = list(self.dungeon.monsters.items())  # [(pos, id), ...]
-            self.combat_log.append(f"  Found monsters: {monster_data}")
-            if monster_data:
-                self._start_combat_with_positions(monster_data)
+        # Monsters are now stored directly in self.monsters with positions set during generation
+        nearby_monsters = [m for m in self.monsters if not m.is_dead and 
+                          abs(m.x - x) + abs(m.y - y) <= 3]
+        if nearby_monsters:
+            self.combat_log.append(f"  Found {len(nearby_monsters)} monsters nearby!")
+            self._start_combat_with_monsters(nearby_monsters)
         
         # Check for wandering monsters on door open
         elif random.randint(1, 12) <= 2:

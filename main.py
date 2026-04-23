@@ -113,10 +113,10 @@ def main():
         # Generate new dungeon level
         from dungeon import Dungeon
         game.dungeon_debug_log.clear()
-        if game.dungeon:
-            game.dungeon.monsters.clear()  # Clear pre-placed monsters from old level
-        game.dungeon = Dungeon(level=game.dungeon.level + 1, debug_log=game.dungeon_debug_log)
-        game.monsters = []
+        game.monsters = []  # Clear all monsters from old level
+        game.dungeon = Dungeon(level=game.dungeon.level + 1, debug_log=game.dungeon_debug_log,
+                               monster_library=game.monster_library)
+        game.dungeon._on_monster_placed = lambda m: game.monsters.append(m)
         # Reset hero positions to stairs
         for hero in game.party:
             hero.x, hero.y = game.dungeon.hero_start

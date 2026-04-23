@@ -108,8 +108,6 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
         side_left = (wall_left[0], wall_left[1] - 1)
         side_right = (wall_right[0], wall_right[1] + 1)
     
-    dungeon._log(f"    Placing capping walls at {wall_left} and {wall_right}")
-    dungeon._log(f"    Placing side walls at {side_left} and {side_right}")
     for pos in [wall_left, wall_right, side_left, side_right]:
         dungeon.grid[pos] = dungeon.TileType.WALL
     
@@ -238,7 +236,6 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
         outer_wall = (pos[0] + turn_side_offset[0], pos[1] + turn_side_offset[1])
         dungeon.grid[outer_wall] = dungeon.TileType.WALL
         dungeon.explored.add(outer_wall)
-        dungeon._log(f"    Turn outer wall at {outer_wall} (from {pos} + {turn_side_offset})")
     # Place capping walls to block forward direction (one step beyond the 2x2)
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
     wall_right = (forward2_right[0] + direction[0], forward2_right[1] + direction[1])
@@ -261,7 +258,6 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     dungeon.pending_junctions[forward1_right] = exits
     dungeon.pending_junctions[forward2_left] = exits
     dungeon.pending_junctions[forward2_right] = exits
-    dungeon._log(f"    Turn pending: {forward1_left}, {forward1_right}, {forward2_left}, {forward2_right}")
 
 
 def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_type,
