@@ -20,5 +20,6 @@ ENV/
 .idea/
 
 # Game saves and data
-save_game.json
+data/heroes.json
+data/save_game.json
 *.save
