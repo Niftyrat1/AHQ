@@ -2,7 +2,7 @@
 
 import random
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from combat import apply_damage_to_hero, roll_damage
 
@@ -87,13 +87,18 @@ def _is_dwarf(hero) -> bool:
 
 
 def _get_spot_bonus(hero) -> int:
-    return 2 if _is_dwarf(hero) else 0
+    bonus = 2 if _is_dwarf(hero) else 0
+    for effect in getattr(hero, "status_effects", []):
+        bonus += int(effect.get("trap_spot_delta", 0))
+    return bonus
 
 
 def _get_disarm_bonus(hero) -> int:
     bonus = getattr(hero, "trap_disarm_bonus", 0)
     if _is_dwarf(hero):
         bonus += 2
+    for effect in getattr(hero, "status_effects", []):
+        bonus += int(effect.get("trap_disarm_delta", 0))
     return bonus
 
 
@@ -118,13 +123,36 @@ def roll_random_trap(source: str = "room_or_passage") -> TrapDefinition:
     return TRAPS[_lookup_table(roll, table)]
 
 
-def mark_trap(dungeon, pos, trap_type: str, symbol: str, blocks_movement: bool = False):
+def mark_trap(dungeon, pos, trap_type: str, symbol: str, blocks_movement: bool = False, **extra):
     """Record a persistent visible trap marker in the dungeon state."""
     dungeon.trap_markers[pos] = {
         "type": trap_type,
         "symbol": symbol,
         "blocks_movement": blocks_movement,
+        **extra,
     }
+
+
+def get_trap_marker(dungeon, pos: Tuple[int, int], trap_type: Optional[str] = None) -> Optional[dict]:
+    """Return trap marker metadata for a tile, optionally filtered by type."""
+    marker = dungeon.trap_markers.get(pos)
+    if marker is None:
+        return None
+    if trap_type is not None and marker.get("type") != trap_type:
+        return None
+    return marker
+
+
+def get_pit_leap_destination(hero, dungeon) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+    """Return a jumpable adjacent pit and the landing square beyond it."""
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        pit_pos = (hero.x + dx, hero.y + dy)
+        if dungeon.get_tile(*pit_pos) != dungeon.TileType.PIT_TRAP:
+            continue
+        landing = (pit_pos[0] + dx, pit_pos[1] + dy)
+        if dungeon.is_walkable(*landing):
+            return pit_pos, landing
+    return None
 
 
 def resolve_trap_event(
@@ -191,17 +219,7 @@ def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], star
     if trap.name == "Pit Trap":
         dungeon.grid[(hero.x, hero.y)] = dungeon.TileType.PIT_TRAP
         mark_trap(dungeon, (hero.x, hero.y), "pit_trap", "PT", blocks_movement=True)
-        fall_roll = _roll_d12()
-        log.append(f"  Pit trap: fall roll {fall_roll}.")
-        if fall_roll >= 9:
-            apply_damage_to_hero(hero, 1, log)
-        climb_roll = _roll_d12()
-        if climb_roll <= hero.speed:
-            log.append(f"  Climb-out roll {climb_roll} <= Speed {hero.speed}: {hero.name} scrambles clear.")
-        else:
-            log.append(
-                f"  Climb-out roll {climb_roll} > Speed {hero.speed}: {hero.name} remains in the pit for now."
-            )
+        _resolve_pit_fall(hero, dungeon, log)
         return
 
     if trap.name == "Crossfire":
@@ -238,16 +256,25 @@ def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], star
         return
 
     if trap.name == "Blocks":
-        mark_trap(dungeon, (hero.x, hero.y), "blocks", "BL", blocks_movement=True)
+        mark_trap(
+            dungeon,
+            (hero.x, hero.y),
+            "blocks",
+            "BL",
+            blocks_movement=False,
+            careful_movement_only=True,
+        )
         dodge_roll = _roll_d12()
-        damage_dice = 3 if dodge_roll <= hero.speed else 12
+        effective_speed = hero.get_effective_speed("exploration")
+        damage_dice = 3 if dodge_roll <= effective_speed else 12
         damage, rolls = roll_damage(damage_dice, hero.toughness, False)
         log.append(
-            f"  Blocks: dodge roll {dodge_roll} vs Speed {hero.speed} -> {damage_dice} damage dice, "
+            f"  Blocks: dodge roll {dodge_roll} vs Speed {effective_speed} -> {damage_dice} damage dice, "
             f"{rolls} vs T{hero.toughness} = {damage} wounds."
         )
         if damage:
             apply_damage_to_hero(hero, damage, log)
+        log.append("  The section remains hazardous and should only be crossed carefully at half speed.")
         return
 
     if trap.name == "Gas":
@@ -324,15 +351,100 @@ def _apply_gas_trap(hero, log: List[str]):
 
     if gas_type == "Mild Poison":
         apply_damage_to_hero(hero, 1, log)
-        log.append("  Mild poison: the movement restriction is noted but not yet enforced turn-by-turn.")
+        hero.add_status_effect(
+            "mild_poison",
+            turns=3,
+            scope="expedition",
+            cannot_move=True,
+        )
+        log.append("  Mild poison: 1 wound and no movement for 3 turns.")
         return
 
+
+def _find_adjacent_clear_tile(hero, dungeon) -> Optional[Tuple[int, int]]:
+    """Return a nearby walkable square a hero can climb into from a pit."""
+    for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+        target = (hero.x + dx, hero.y + dy)
+        if dungeon.is_walkable(*target):
+            return target
+    return None
+
+
+def _resolve_pit_fall(hero, dungeon, log: List[str]):
+    """Apply the wound/climb sequence for a pit trap."""
+    fall_roll = _roll_d12()
+    log.append(f"  Pit trap: fall roll {fall_roll}.")
+    if fall_roll >= 9:
+        apply_damage_to_hero(hero, 1, log)
+
+    climb_roll = _roll_d12()
+    effective_speed = hero.get_effective_speed("exploration")
+    if climb_roll <= effective_speed:
+        escape_tile = _find_adjacent_clear_tile(hero, dungeon)
+        if escape_tile is not None:
+            hero.x, hero.y = escape_tile
+            log.append(
+                f"  Climb-out roll {climb_roll} <= Speed {effective_speed}: {hero.name} scrambles clear to {escape_tile}."
+            )
+        else:
+            log.append(
+                f"  Climb-out roll {climb_roll} <= Speed {effective_speed}, but there is no clear square to climb into."
+            )
+    else:
+        log.append(
+            f"  Climb-out roll {climb_roll} > Speed {effective_speed}: {hero.name} remains in the pit for now."
+        )
+
+
+def resolve_pit_leap(hero, dungeon, log: List[str], pit_pos: Tuple[int, int]) -> Optional[Tuple[int, int]]:
+    """Attempt to leap over a visible pit trap."""
+    dx = pit_pos[0] - hero.x
+    dy = pit_pos[1] - hero.y
+    if abs(dx) + abs(dy) != 1:
+        log.append("  You must stand next to the pit to leap it.")
+        return None
+
+    landing = (pit_pos[0] + dx, pit_pos[1] + dy)
+    if not dungeon.is_walkable(*landing):
+        log.append(f"  There is no safe landing square beyond the pit at {landing}.")
+        return None
+
+    leap_roll = _roll_d12()
+    effective_speed = hero.get_effective_speed("exploration")
+    if leap_roll <= effective_speed:
+        hero.x, hero.y = landing
+        log.append(
+            f"  Pit leap roll {leap_roll} <= Speed {effective_speed}: {hero.name} clears the pit and lands at {landing}."
+        )
+        return landing
+
+    hero.x, hero.y = pit_pos
+    log.append(
+        f"  Pit leap roll {leap_roll} > Speed {effective_speed}: {hero.name} falls into the pit at {pit_pos}."
+    )
+    _resolve_pit_fall(hero, dungeon, log)
+    return (hero.x, hero.y)
+
     if gas_type == "Nausea":
-        log.append("  Nausea: reduced move/WS/BS/Strength is noted for the follow-up status-effects pass.")
+        hero.add_status_effect(
+            "nausea",
+            scope="expedition",
+            exploration_move_cap=8,
+            combat_move_divisor=2,
+            ws_divisor=2,
+            bs_divisor=2,
+            strength_delta=-2,
+        )
+        log.append("  Nausea: movement capped, combat move halved, WS/BS halved, Strength -2 for the expedition.")
         return
 
     if gas_type == "Madness":
-        log.append("  Madness: GM control for 6 turns is noted for the follow-up status-effects pass.")
+        hero.add_status_effect(
+            "madness",
+            turns=6,
+            scope="expedition",
+        )
+        log.append("  Madness: the hero is under GM control for 6 turns.")
         return
 
     if gas_type == "Strong Poison":
@@ -357,6 +469,10 @@ def _apply_gas_trap(hero, log: List[str]):
 __all__ = [
     "TrapDefinition",
     "TRAPS",
+    "get_pit_leap_destination",
+    "get_trap_marker",
+    "mark_trap",
     "roll_random_trap",
+    "resolve_pit_leap",
     "resolve_trap_event",
 ]

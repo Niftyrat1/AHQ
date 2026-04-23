@@ -130,14 +130,22 @@ class Dungeon:
     def is_walkable(self, x: int, y: int) -> bool:
         """Check if heroes can walk on this tile."""
         tile = self.get_tile(x, y)
+        marker = self.trap_markers.get((x, y))
+        if marker and marker.get("blocks_movement", False):
+            return False
         return tile in (TileType.FLOOR, TileType.STAIRS_DOWN, TileType.STAIRS_OUT,
-                       TileType.DOOR_OPEN, TileType.TREASURE_OPEN, TileType.PASSAGE_END)
+                       TileType.DOOR_OPEN, TileType.TREASURE_OPEN, TileType.PASSAGE_END,
+                       TileType.GRATE, TileType.THRONE)
     
     def is_blocked(self, x: int, y: int) -> bool:
         """Check if tile blocks movement."""
         tile = self.get_tile(x, y)
+        marker = self.trap_markers.get((x, y))
+        if marker and marker.get("blocks_movement", False):
+            return True
         return tile in (TileType.WALL, TileType.UNEXPLORED, TileType.DOOR_CLOSED,
-                       TileType.PIT_TRAP, TileType.TREASURE_CLOSED, TileType.STATUE)
+                       TileType.PIT_TRAP, TileType.TREASURE_CLOSED, TileType.STATUE,
+                       TileType.CHASM)
 
     @staticmethod
     def _serialize_pos(pos: Tuple[int, int]) -> str:
@@ -572,6 +580,7 @@ class Dungeon:
                 # Generate passage starting one tile beyond the door (gen_x, gen_y)
                 # Don't pass door position or it will overwrite the door
                 passage_tiles = generate_passage_from(self, gen_x, gen_y, direction)
+                self._reveal_generated_tiles(passage_tiles)
                 # Reveal from the generated passage itself, not just the doorway.
                 if passage_tiles:
                     self._explore_from(passage_tiles[0][0], passage_tiles[0][1])
@@ -649,6 +658,16 @@ class Dungeon:
     def get_distance(self, x1: int, y1: int, x2: int, y2: int) -> int:
         """Get Manhattan distance."""
         return abs(x1 - x2) + abs(y1 - y2)
+
+    def _reveal_generated_tiles(self, tiles: List[Tuple[int, int]]):
+        """Reveal a generated section and nearby boundary tiles."""
+        for tx, ty in tiles:
+            self.explored.add((tx, ty))
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    adj_x, adj_y = tx + dx, ty + dy
+                    if self.get_tile(adj_x, adj_y) != TileType.UNEXPLORED:
+                        self.explored.add((adj_x, adj_y))
     
     def to_dict(self) -> dict:
         """Convert dungeon to dictionary for saving."""

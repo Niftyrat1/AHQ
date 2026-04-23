@@ -59,6 +59,10 @@ class Hero:
         self.is_dead = False
         self.is_ko = False
         self.trap_disarm_bonus = 0
+        self.ko_turns = 0
+        self.temp_fate_bonus = 0
+        self.free_spell_cast = 0
+        self.status_effects: List[Dict[str, Any]] = []
         
         # Position in dungeon (set when placed)
         self.x = 0
@@ -122,6 +126,124 @@ class Hero:
     def heal(self, amount: int):
         """Heal wounds up to max."""
         self.current_wounds = min(self.max_wounds, self.current_wounds + amount)
+
+    def get_status_effect(self, name: str) -> Optional[Dict[str, Any]]:
+        """Return a named status effect, if present."""
+        for effect in self.status_effects:
+            if effect.get("name") == name:
+                return effect
+        return None
+
+    def has_status_effect(self, name: str) -> bool:
+        """Check whether a named status effect is active."""
+        return self.get_status_effect(name) is not None
+
+    def add_status_effect(self, name: str, **data: Any):
+        """Add or replace a named status effect."""
+        effect = {"name": name, **data}
+        existing = self.get_status_effect(name)
+        if existing is not None:
+            existing.clear()
+            existing.update(effect)
+            return
+        self.status_effects.append(effect)
+
+    def remove_status_effect(self, name: str):
+        """Remove a named status effect if present."""
+        self.status_effects = [effect for effect in self.status_effects if effect.get("name") != name]
+
+    def clear_status_effects(self, scope: Optional[str] = None):
+        """Clear all status effects, or only those in a scope."""
+        if scope is None:
+            self.status_effects = []
+            return
+        self.status_effects = [
+            effect for effect in self.status_effects
+            if effect.get("scope") != scope
+        ]
+
+    def tick_status_effects(self) -> List[str]:
+        """Advance temporary effect timers and return expired effect names."""
+        expired: List[str] = []
+        remaining_effects: List[Dict[str, Any]] = []
+        for effect in self.status_effects:
+            turns = effect.get("turns")
+            if turns is None:
+                remaining_effects.append(effect)
+                continue
+
+            effect["turns"] = turns - 1
+            if effect["turns"] <= 0:
+                expired.append(str(effect.get("name", "effect")))
+            else:
+                remaining_effects.append(effect)
+
+        self.status_effects = remaining_effects
+        return expired
+
+    def get_effective_ws(self) -> int:
+        """Get Weapon Skill after active effects."""
+        ws = self.ws
+        for effect in self.status_effects:
+            ws += int(effect.get("ws_delta", 0))
+            divisor = effect.get("ws_divisor")
+            if divisor:
+                ws = max(1, ws // int(divisor))
+        return max(1, ws)
+
+    def get_effective_bs(self) -> int:
+        """Get Ballistic Skill after active effects."""
+        bs = self.bs
+        for effect in self.status_effects:
+            bs += int(effect.get("bs_delta", 0))
+            divisor = effect.get("bs_divisor")
+            if divisor:
+                bs = max(1, bs // int(divisor))
+        return max(1, bs)
+
+    def get_effective_strength(self) -> int:
+        """Get Strength after active effects."""
+        strength = self.strength
+        for effect in self.status_effects:
+            strength += int(effect.get("strength_delta", 0))
+        return max(1, strength)
+
+    def get_effective_speed(self, phase: str = "exploration") -> int:
+        """Get Speed after active effects."""
+        speed = self.speed
+        for effect in self.status_effects:
+            speed += int(effect.get("speed_delta", 0))
+            if phase == "combat" and effect.get("combat_speed_multiplier"):
+                speed *= int(effect["combat_speed_multiplier"])
+        return max(1, speed)
+
+    def get_movement_allowance(self, phase: str = "exploration") -> int:
+        """Get current movement allowance for the given phase."""
+        if any(effect.get("cannot_move") for effect in self.status_effects):
+            return 0
+
+        if phase == "combat":
+            allowance = self.get_effective_speed("combat")
+            for effect in self.status_effects:
+                divisor = effect.get("combat_move_divisor")
+                if divisor:
+                    allowance = max(1, allowance // int(divisor))
+            return max(0, allowance)
+
+        allowance = self.get_effective_speed("exploration")
+        for effect in self.status_effects:
+            cap = effect.get("exploration_move_cap")
+            if cap is not None:
+                allowance = min(allowance, int(cap))
+        return max(0, allowance)
+
+    def get_bonus_melee_damage_dice(self) -> int:
+        """Get any temporary bonus melee damage dice from effects."""
+        return sum(int(effect.get("bonus_melee_damage_dice", 0)) for effect in self.status_effects)
+
+    def is_under_gm_control(self) -> bool:
+        """Whether the hero is currently not under player control."""
+        return self.has_status_effect("madness")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert hero to dictionary for saving."""
@@ -148,6 +270,10 @@ class Hero:
             "is_dead": self.is_dead,
             "is_ko": self.is_ko,
             "trap_disarm_bonus": self.trap_disarm_bonus,
+            "ko_turns": self.ko_turns,
+            "temp_fate_bonus": self.temp_fate_bonus,
+            "free_spell_cast": self.free_spell_cast,
+            "status_effects": self.status_effects,
         }
     
     @classmethod
@@ -177,6 +303,10 @@ class Hero:
         hero.is_dead = data.get("is_dead", False)
         hero.is_ko = data.get("is_ko", False)
         hero.trap_disarm_bonus = data.get("trap_disarm_bonus", 0)
+        hero.ko_turns = data.get("ko_turns", 0)
+        hero.temp_fate_bonus = data.get("temp_fate_bonus", 0)
+        hero.free_spell_cast = data.get("free_spell_cast", 0)
+        hero.status_effects = list(data.get("status_effects", []))
         return hero
     
     def __repr__(self):

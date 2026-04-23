@@ -59,6 +59,32 @@ def _check_room_fit(dungeon: "Dungeon", start_x: int, start_y: int,
     return True
 
 
+def _place_room_chest(dungeon: "Dungeon", room_data: dict, occupied_tiles=None):
+    """Place a treasure chest on an unoccupied interior tile."""
+    occupied = set(occupied_tiles or [])
+    candidates = sorted(
+        pos for pos in room_data.get("interior_tiles", set())
+        if pos not in occupied and dungeon.get_tile(pos[0], pos[1]) == dungeon.TileType.FLOOR
+    )
+    if not candidates:
+        return None
+
+    entrance = room_data.get("entrance")
+    if isinstance(entrance, list) and len(entrance) == 2:
+        entrance_pos = (int(entrance[0]), int(entrance[1]))
+        chest_pos = max(
+            candidates,
+            key=lambda pos: (abs(pos[0] - entrance_pos[0]) + abs(pos[1] - entrance_pos[1]), pos[1], pos[0]),
+        )
+    else:
+        chest_pos = candidates[-1]
+
+    dungeon.grid[chest_pos] = dungeon.TileType.TREASURE_CLOSED
+    dungeon.treasure[chest_pos] = False
+    room_data["chest_pos"] = list(chest_pos)
+    return chest_pos
+
+
 def _try_room_position(dungeon: "Dungeon", door_x: int, door_y: int,
                         entrance_dir: Tuple[int, int], int_width: int, int_height: int,
                         room_type: str) -> bool:
@@ -203,6 +229,12 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
         'room_kind': 'normal',
         'hazard': None,
         'hazard_anchor': None,
+        'entrance': [door_x, door_y],
+        'chest_pos': None,
+        'chest_loot': None,
+        'chest_trapped': False,
+        'chest_opened': False,
+        'chest_trap_resolved': False,
     }
     dungeon.rooms.append(room_data)
     dungeon._log(f"    Generated {room_type} room at ({start_x}, {start_y}) "
@@ -218,13 +250,26 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
             sorted_tiles = sorted(room_tiles)
             hazard_anchor = sorted_tiles[len(sorted_tiles) // 2]
             room_data['hazard_anchor'] = list(hazard_anchor)
-            if hazard_blocks_movement(room_data['hazard']):
+            hazard_type = room_data["hazard"].get("type")
+            if hazard_type == "statue":
                 dungeon.grid[hazard_anchor] = dungeon.TileType.STATUE
+            elif hazard_type == "chasm":
+                dungeon.grid[hazard_anchor] = dungeon.TileType.CHASM
+            elif hazard_type == "grate":
+                dungeon.grid[hazard_anchor] = dungeon.TileType.GRATE
+            elif hazard_type == "throne":
+                dungeon.grid[hazard_anchor] = dungeon.TileType.THRONE
         dungeon._log(f"    Hazard room: {describe_hazard(room_data['hazard'])}")
     elif 9 <= room_roll <= 10:
         # Lair room
         room_data['room_kind'] = 'lair'
         monster_ids = roll_lair_encounter()
+        room_data['chest_loot'] = {
+            'gold': sum(
+                int(getattr(dungeon.monster_library, "templates", {}).get(monster_id, {}).get("PV", 1)) * 10
+                for monster_id in monster_ids
+            )
+        }
         dungeon._log(f"    Lair room stocked with {len(monster_ids)} monster(s): {', '.join(monster_ids)}")
         available = list(room_tiles)
         random.shuffle(available)
@@ -233,10 +278,17 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
                 break
             pos = available[i]
             dungeon._place_monster(monster_id, pos[0], pos[1])
+        _place_room_chest(dungeon, room_data, occupied_tiles=available[:len(monster_ids)])
     elif 11 <= room_roll <= 12:
         # Quest room
         room_data['room_kind'] = 'quest'
         monster_ids = roll_quest_room_encounter()
+        room_data['chest_loot'] = {
+            'gold': sum(
+                int(getattr(dungeon.monster_library, "templates", {}).get(monster_id, {}).get("PV", 1)) * 10
+                for monster_id in monster_ids
+            )
+        }
         dungeon._log(f"    Quest room stocked with {len(monster_ids)} monster(s): {', '.join(monster_ids)}")
         available = list(room_tiles)
         random.shuffle(available)
@@ -245,6 +297,7 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
                 break
             pos = available[i]
             dungeon._place_monster(monster_id, pos[0], pos[1])
+        _place_room_chest(dungeon, room_data, occupied_tiles=available[:len(monster_ids)])
 
     _add_room_exits(dungeon, start_x, start_y, total_width, total_height,
                     door_x, door_y, entrance_dir)

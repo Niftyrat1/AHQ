@@ -240,6 +240,15 @@ def run_gm_phase(
     for monster in monsters:
         if monster.is_dead:
             continue
+
+        if getattr(monster, "throne_leader", False):
+            target = find_target_hero(heroes, monsters)
+            if target and dungeon.is_adjacent(monster.x, monster.y, target.x, target.y):
+                log.append(f"  {monster.name} attacks {target.name} from the throne")
+                resolve_monster_attack(monster, target, log)
+            else:
+                log.append(f"  {monster.name} holds the throne.")
+            continue
         
         if tactic == "RANGED_ATTACK" and monster.has_ranged():
             # Try to move to LOS position

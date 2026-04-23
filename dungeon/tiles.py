@@ -18,3 +18,6 @@ class TileType(Enum):
     TREASURE_OPEN = auto()
     PIT_TRAP = auto()
     STATUE = auto()
+    CHASM = auto()
+    GRATE = auto()
+    THRONE = auto()

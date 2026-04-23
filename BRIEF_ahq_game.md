@@ -21,7 +21,7 @@ The live codebase is an early playable vertical slice, not the full brief below.
 - partial solo-GM automation
 - Phase A correctness fixes for room persistence/reveal, BFS movement, and core combat edge cases
 
-The live codebase does not yet fully implement the solo rules, the full turn structure, magic, full hazard interaction, hero ranged combat, henchmen, or between-expeditions systems.
+The live codebase does not yet fully implement the solo rules, the full turn structure, magic, chest/room-feature treasure logic, hero ranged combat, henchmen, or between-expeditions systems.
 
 ## Implementation Order
 
@@ -29,7 +29,8 @@ The recommended implementation order is:
 
 1. Turn-structure alignment for exploration/combat under the solo rules
 2. Missing combat systems: hero ranged combat, equipment effects, and rules-faithful KO/fate/ranged resolution
-3. Dungeon counters, traps, hazard-room interaction, and treasure resolution
+3. Dungeon counters, traps, hazard-room interaction, status effects, and treasure resolution
+   Current hazard support now covers reveal-time wandering-monster/NPC/throne encounters plus interactive chasm, grate, pool, statue, mould, rats, bats, mushrooms, magic circle, trapdoor, rescued NPC follow-up, witch-escape handling, visible chest opening for lair/quest/chasm rooms, visible pit-leap actions, and liftable portcullises.
 4. Dungeon-screen overhaul: larger tiles, proper square artwork, real token/counter assets, and a minimap
 5. Magic, henchmen, and between-expeditions systems
 6. Quest-book and scripted solo content where procedural generation is not sufficient

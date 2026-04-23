@@ -14,7 +14,7 @@ Current repository status: early `Phase 1` implementation. The project has worki
 ## Current Gaps
 
 - Solo rules are only partially implemented
-- Hero ranged combat, magic, full hazard interaction, and henchmen are still missing
+- Hero ranged combat, magic, richer room-feature treasure logic, and henchmen are still missing
 - Between-expeditions systems and the full quest-book/solo content are not implemented
 - Several solo/AHQ fidelity issues still remain, especially around turn structure, dungeon counters, and equipment depth
 
@@ -32,7 +32,10 @@ Current repository status: early `Phase 1` implementation. The project has worki
 
 ### Phase B - Core Solo Rules
 - Implement dungeon counter resolution rather than logging placeholder counter names
-- Complete trap consequences and hazard-room interactions from the AHQ tables
+- Continue completing trap consequences and chest/room-feature interactions from the AHQ tables
+- Current work now includes a reusable hero status-effects layer plus rules-backed gas, mould, rats, bats, mushrooms, chasm leaps, grate rooms, wandering-monster hazard rooms, NPC encounters and follow-up, witches that can escape with loot, and throne encounters
+- Lair, quest, and chasm rooms now place visible chests, chest opening resolves traps and gold, and hidden-treasure gold now updates hero state correctly
+- Revealed pit traps can now be leapt, portcullises can be lifted for a hero phase, and persistent trap markers now affect movement instead of being visual-only
 - Implement hero ranged combat, LOS/range bands, and equipment effects
 - Expand solo GM tactics and targeting to match the solo rules more closely
 - Continue replacing placeholder counter effects with rules-faithful outcomes as the trap/hazard systems land

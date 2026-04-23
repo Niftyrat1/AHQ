@@ -251,7 +251,9 @@ class DungeonViewTk:
         walkable = self.dungeon.is_walkable(x, y)
         
         # Get remaining movement
-        remaining_movement = self.selected_hero.speed
+        remaining_movement = self.selected_hero.get_movement_allowance(
+            "combat" if self.current_phase == "COMBAT" else "exploration"
+        )
         if self.on_get_hero_status:
             remaining_movement, _ = self.on_get_hero_status(self.selected_hero.id)
         
@@ -358,9 +360,7 @@ class DungeonViewTk:
                     self.canvas.create_rectangle(cx, cy, cx+TILE_SIZE, cy+TILE_SIZE,
                                                 fill="#0a0a0f", outline="")
                 else:
-                    room = None
-                    if tile == TileType.FLOOR:
-                        room = self.dungeon.find_room_for_tile(x, y)
+                    room = self.dungeon.find_room_for_tile(x, y)
 
                     # Tile colors
                     if tile == TileType.FLOOR:
@@ -396,6 +396,15 @@ class DungeonViewTk:
                             outline = "#B8860B"
                     elif tile == TileType.STATUE:
                         color = "#7a7a84"
+                        outline = "#d1b24a"
+                    elif tile == TileType.CHASM:
+                        color = "#05060b"
+                        outline = "#5d4652"
+                    elif tile == TileType.GRATE:
+                        color = "#515862"
+                        outline = "#d1b24a"
+                    elif tile == TileType.THRONE:
+                        color = "#7b6030"
                         outline = "#d1b24a"
                     else:
                         color = "#3a3a45"
@@ -438,6 +447,30 @@ class DungeonViewTk:
                             cx + TILE_SIZE // 2,
                             cy + TILE_SIZE // 2,
                             text="ST",
+                            fill="#f6e28a",
+                            font=("Arial", 7, "bold")
+                        )
+                    elif tile == TileType.CHASM:
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text="CH",
+                            fill="#f6e28a",
+                            font=("Arial", 7, "bold")
+                        )
+                    elif tile == TileType.GRATE:
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text="GR",
+                            fill="#f6e28a",
+                            font=("Arial", 7, "bold")
+                        )
+                    elif tile == TileType.THRONE:
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text="TH",
                             fill="#f6e28a",
                             font=("Arial", 7, "bold")
                         )
@@ -517,14 +550,18 @@ class DungeonViewTk:
             wound_color = "#f55" if hero.current_wounds <= hero.max_wounds // 2 else "#ddd"
             
             # Get hero status if callback available
-            movement_remaining = hero.speed
+            movement_remaining = hero.get_movement_allowance(
+                "combat" if self.current_phase == "COMBAT" else "exploration"
+            )
             has_attacked = False
             if self.on_get_hero_status:
                 movement_remaining, has_attacked = self.on_get_hero_status(hero.id)
             
             attack_status = " A" if has_attacked else ""
-            
-            line = f"{hero.name:12} {status:6}\n"
+            effects = ", ".join(effect.get("name", "?") for effect in hero.status_effects[:2])
+            effects_suffix = f" [{effects}]" if effects else ""
+
+            line = f"{hero.name:12} {status:6}{effects_suffix}\n"
             line += f"  W:{hero.current_wounds:2}/{hero.max_wounds:2} F:{hero.current_fate} M:{movement_remaining}{attack_status}\n\n"
             
             self.party_text.insert(tk.END, line)
@@ -624,7 +661,9 @@ class DungeonViewTk:
         self.movement_highlights = []
         
         # Get remaining movement from callback
-        movement_remaining = hero.speed
+        movement_remaining = hero.get_movement_allowance(
+            "combat" if self.current_phase == "COMBAT" else "exploration"
+        )
         if self.on_get_hero_status:
             movement_remaining, _ = self.on_get_hero_status(hero.id)
         

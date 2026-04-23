@@ -15,9 +15,9 @@ from combat import (
     do_surprise_roll, find_target_hero
 )
 from gm import run_gm_phase, check_dungeon_counter, find_path_bfs, create_dungeon_counter_pool
-from hazards import describe_hazard
+from hazards import describe_hazard, get_hazard_anchor, resolve_hazard_reveal, resolve_magic_circle_entry
 from monster_placement import place_monsters_whq_rules, surprise_move_monster
-from traps import resolve_trap_event
+from traps import get_trap_marker, resolve_pit_leap, resolve_trap_event
 
 
 class GameState:
@@ -46,6 +46,18 @@ class GameState:
         self.dungeon_debug_log: List[str] = []  # For tracking dungeon generation
         self.dungeon_counter_pool: List[str] = []
         self.held_dungeon_counters: List[str] = []
+        self.expedition_followers = {
+            "maiden": False,
+            "man_at_arms": False,
+            "rogue": False,
+        }
+
+    def _get_movement_allowance_for_phase(self, hero: Hero, phase: Optional[str] = None) -> int:
+        """Return a hero's movement allowance for the current phase."""
+        active_phase = phase or self.current_phase
+        if active_phase == "COMBAT":
+            return hero.get_movement_allowance("combat")
+        return hero.get_movement_allowance("exploration")
     
     def start_quest(self, party: List[Hero]):
         """Begin a new dungeon expedition."""
@@ -68,9 +80,17 @@ class GameState:
         self.gold_found = 0
         self.dungeon_counter_pool = create_dungeon_counter_pool()
         self.held_dungeon_counters = []
+        self.expedition_followers = {
+            "maiden": False,
+            "man_at_arms": False,
+            "rogue": False,
+        }
         
         # Initialize movement tracking
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h, "EXPLORATION")
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
         
         # Place heroes
@@ -79,9 +99,191 @@ class GameState:
             hero.x = start_x + (i % 2)
             hero.y = start_y + (i // 2)
             hero.is_ko = False
+            hero.ko_turns = 0
             hero.current_wounds = hero.max_wounds
+            hero.temp_fate_bonus = 0
+            hero.free_spell_cast = 0
+            hero.status_effects = []
         
         self.save_game()
+
+    def roll_wandering_monsters(self) -> List[str]:
+        """Roll a wandering-monster group for the current expedition."""
+        return roll_lair_encounter()
+
+    def get_party_gold_total(self) -> int:
+        """Return total gold currently carried by the party."""
+        return sum(hero.gold for hero in self.party if not hero.is_dead)
+
+    def adjust_party_gold(self, amount: int):
+        """Distribute or remove gold across living heroes."""
+        living = [hero for hero in self.party if not hero.is_dead]
+        if not living or amount == 0:
+            return
+
+        if amount > 0:
+            share, remainder = divmod(amount, len(living))
+            for idx, hero in enumerate(living):
+                hero.gold += share + (1 if idx < remainder else 0)
+            return
+
+        remaining = -amount
+        for hero in sorted(living, key=lambda current: current.gold, reverse=True):
+            if remaining <= 0:
+                break
+            taken = min(hero.gold, remaining)
+            hero.gold -= taken
+            remaining -= taken
+
+    def _find_room_with_chest(self, x: int, y: int) -> Optional[dict]:
+        """Return the room metadata for a chest tile."""
+        if self.dungeon is None:
+            return None
+        for room in self.dungeon.rooms:
+            chest_pos = room.get("chest_pos")
+            if isinstance(chest_pos, list) and len(chest_pos) == 2 and (x, y) == (int(chest_pos[0]), int(chest_pos[1])):
+                return room
+        return None
+
+    def _roll_room_chest_contents(self, room: dict) -> dict:
+        """Resolve chest contents for a room if they have not been rolled yet."""
+        existing = room.get("chest_loot")
+        if isinstance(existing, dict):
+            return existing
+
+        room_kind = room.get("room_kind", "normal")
+        if room_kind == "quest":
+            loot = {"gold": random.randint(5, 12) * 10}
+        elif room_kind == "lair":
+            loot = {"gold": random.randint(3, 8) * 10}
+        else:
+            loot = {"gold": random.randint(1, 6) * 5}
+        room["chest_loot"] = loot
+        return loot
+
+    def open_treasure_chest(self, hero: Hero, x: int, y: int) -> str:
+        """Open a treasure chest, resolving any trap and loot."""
+        if self.dungeon.get_tile(x, y) != self.dungeon.TileType.TREASURE_CLOSED:
+            return "There is no closed chest there."
+
+        room = self._find_room_with_chest(x, y)
+        if room is None:
+            return "This chest is not linked to a room."
+
+        messages: List[str] = []
+        if room.get("chest_trapped") and not room.get("chest_trap_resolved"):
+            room["chest_trap_resolved"] = True
+            resolve_trap_event(
+                hero,
+                self.dungeon,
+                self.combat_log,
+                lambda _: None,
+                source="chest",
+                can_spot=False,
+                can_disarm=False,
+            )
+            messages.append("The chest is trapped!")
+
+        if hero.is_dead:
+            return " ".join(messages) if messages else f"{hero.name} is killed by the chest trap."
+
+        loot = self._roll_room_chest_contents(room)
+        gold = int(loot.get("gold", 0))
+        if gold > 0:
+            hero.gold += gold
+            self.gold_found += gold
+            messages.append(f"{hero.name} finds {gold} gold crowns in the chest.")
+        else:
+            messages.append("The chest is empty.")
+
+        room["chest_opened"] = True
+        self.dungeon.treasure[(x, y)] = True
+        self.dungeon.grid[(x, y)] = self.dungeon.TileType.TREASURE_OPEN
+        return " ".join(messages)
+
+    def lift_portcullis(self, hero: Hero, x: int, y: int) -> str:
+        """Attempt to lift a visible portcullis long enough for others to pass."""
+        marker = get_trap_marker(self.dungeon, (x, y), "portcullis")
+        if marker is None:
+            return "There is no portcullis there."
+
+        if not self.dungeon.is_adjacent(hero.x, hero.y, x, y) and (hero.x, hero.y) != (x, y):
+            return "You must stand next to the portcullis to lift it."
+
+        if self.current_phase != "EXPLORATION":
+            return "A portcullis can only be lifted during exploration."
+
+        participants: List[Hero] = []
+        for candidate in self.party:
+            if candidate.is_dead or candidate.is_ko or candidate.is_under_gm_control():
+                continue
+            if not self.dungeon.is_adjacent(candidate.x, candidate.y, x, y) and (candidate.x, candidate.y) != (x, y):
+                continue
+            remaining = self.hero_movement_remaining.get(
+                candidate.id,
+                self._get_movement_allowance_for_phase(candidate, "EXPLORATION"),
+            )
+            if remaining <= 0:
+                continue
+            participants.append(candidate)
+
+        if hero not in participants:
+            participants.append(hero)
+
+        roll = random.randint(1, 12)
+        total_strength = sum(current.get_effective_strength() for current in participants)
+        total = roll + total_strength
+        for participant in participants:
+            self.hero_movement_remaining[participant.id] = 0
+
+        names = ", ".join(current.name for current in participants)
+        if total >= 20:
+            marker["blocks_movement"] = False
+            marker["temporary_open"] = True
+            marker["opened_on_turn"] = self.turn_count
+            marker["helpers"] = [current.id for current in participants]
+            return (
+                f"Portcullis lift: {names} heave together. Roll {roll} + Strength {total_strength} = {total}. "
+                "The portcullis is lifted for the rest of this hero phase."
+            )
+
+        marker["blocks_movement"] = True
+        marker.pop("temporary_open", None)
+        return (
+            f"Portcullis lift: {names} heave together. Roll {roll} + Strength {total_strength} = {total}. "
+            "The portcullis does not budge."
+        )
+
+    def leap_pit_trap(self, hero: Hero, x: int, y: int) -> str:
+        """Attempt to leap over a visible pit trap."""
+        marker = get_trap_marker(self.dungeon, (x, y), "pit_trap")
+        if marker is None and self.dungeon.get_tile(x, y) != self.dungeon.TileType.PIT_TRAP:
+            return "There is no pit trap there."
+
+        if not self.dungeon.is_adjacent(hero.x, hero.y, x, y):
+            return "You must stand next to the pit to leap it."
+
+        dx = x - hero.x
+        dy = y - hero.y
+        landing = (x + dx, y + dy)
+        if not self.dungeon.is_walkable(*landing):
+            return f"There is no clear landing square beyond the pit at {landing}."
+
+        occupied = self._get_occupied_tiles_for_hero(hero)
+        if landing in occupied:
+            return f"The landing square at {landing} is occupied."
+
+        start = (hero.x, hero.y)
+        result_pos = resolve_pit_leap(hero, self.dungeon, self.combat_log, (x, y))
+        if result_pos is None:
+            hero.x, hero.y = start
+            return "The leap cannot be attempted."
+
+        self.hero_movement_remaining[hero.id] = 0
+        self.dungeon._explore_from(hero.x, hero.y)
+        if (hero.x, hero.y) == landing:
+            return f"{hero.name} leaps the pit and lands at {landing}."
+        return f"{hero.name} falls into the pit at ({x}, {y})."
     
     def move_hero(self, hero: Hero, x: int, y: int):
         """Move a hero to a new position."""
@@ -91,7 +293,7 @@ class GameState:
                 self.combat_log.append(message)
             return False
 
-        remaining = self.hero_movement_remaining.get(hero.id, hero.speed)
+        remaining = self.hero_movement_remaining.get(hero.id, self._get_movement_allowance_for_phase(hero))
 
         # Move
         hero.x, hero.y = x, y
@@ -134,9 +336,12 @@ class GameState:
         """Check whether a hero can legally move to a tile."""
         if hero.is_dead or hero.is_ko:
             return False, f"{hero.name} is dead/KO!", 0
+
+        if hero.is_under_gm_control():
+            return False, f"{hero.name} is under GM control!", 0
         
         # Check remaining movement
-        remaining = self.hero_movement_remaining.get(hero.id, hero.speed)
+        remaining = self.hero_movement_remaining.get(hero.id, self._get_movement_allowance_for_phase(hero))
         if remaining <= 0:
             return False, f"{hero.name} has no movement left!", 0
         
@@ -168,8 +373,22 @@ class GameState:
             if hazard and not hazard.get("revealed", False):
                 hazard["revealed"] = True
                 self.combat_log.append(f"Hazard room revealed: {describe_hazard(hazard)}.")
+                reveal_result = resolve_hazard_reveal(room, self)
+                if reveal_result:
+                    self.combat_log.append(reveal_result)
+                if self.current_phase == "COMBAT":
+                    return
+            if hazard and hazard.get("type") == "magic_circle":
+                anchor = get_hazard_anchor(room)
+                if anchor == (x, y):
+                    hero_at_tile = next((h for h in self.party if h.x == x and h.y == y and not h.is_dead), None)
+                    result = None
+                    if hero_at_tile is not None:
+                        result = resolve_magic_circle_entry(hero=hero_at_tile, room=room, game=self)
+                    if result:
+                        self.combat_log.append(result)
         
-        if tile.value == 10:  # STAIRS_OUT
+        if tile == self.dungeon.TileType.STAIRS_OUT:
             self._exit_dungeon()
         
         # Check for wandering monsters in passages
@@ -255,6 +474,10 @@ class GameState:
         """Hero attacks a monster."""
         if hero.is_dead or hero.is_ko or monster.is_dead:
             return False
+
+        if hero.is_under_gm_control():
+            self.combat_log.append(f"{hero.name} is under GM control and cannot be directed by the player.")
+            return False
         
         # Check if hero already attacked this phase
         if hero.id in self.hero_has_attacked:
@@ -274,6 +497,7 @@ class GameState:
         if monster.is_dead:
             self.experience_gained += monster.pv
             self.monsters = [m for m in self.monsters if not m.is_dead]
+            self._refresh_special_monster_states()
             
             # Check if combat ends
             if not any(not m.is_dead for m in self.monsters):
@@ -285,6 +509,7 @@ class GameState:
     def end_hero_phase(self):
         """End hero phase and start GM phase."""
         self.hero_phase_active = False
+        self._close_temporary_traps()
         
         if self.current_phase == "EXPLORATION":
             self._run_exploration_gm_phase()
@@ -293,15 +518,52 @@ class GameState:
         
         self.hero_phase_active = True
         # Reset movement and attack tracking for next hero phase
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h)
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
         self.turn_count += 1
+        self._advance_ko_timers()
+        self._advance_status_effects()
         
         # Check for dead party
         if all(h.is_dead for h in self.party):
             self._game_over()
         
         self.save_game()
+
+    def _close_temporary_traps(self):
+        """Close any trap states that only stay open for the hero phase."""
+        if self.dungeon is None:
+            return
+        for pos, marker in self.dungeon.trap_markers.items():
+            if marker.get("type") == "portcullis" and marker.get("temporary_open"):
+                marker["blocks_movement"] = True
+                marker.pop("temporary_open", None)
+                self.combat_log.append(f"The portcullis at {pos} crashes shut again.")
+
+    def _advance_ko_timers(self):
+        """Reduce temporary KO timers and wake heroes when they expire."""
+        for hero in self.party:
+            if hero.ko_turns > 0:
+                hero.ko_turns -= 1
+                if hero.ko_turns == 0 and hero.is_ko and not hero.is_dead:
+                    hero.is_ko = False
+                    if hero.current_wounds <= 0:
+                        hero.current_wounds = 1
+                    self.combat_log.append(f"{hero.name} recovers from a temporary KO.")
+
+    def _advance_status_effects(self):
+        """Advance timed hero status effects."""
+        expiry_messages = {
+            "madness": "returns to their senses.",
+            "mild_poison": "can move again.",
+        }
+        for hero in self.party:
+            for expired in hero.tick_status_effects():
+                suffix = expiry_messages.get(expired, "is no longer affected.")
+                self.combat_log.append(f"{hero.name} {suffix}")
     
     def _run_exploration_gm_phase(self):
         """Run GM phase during exploration."""
@@ -437,12 +699,15 @@ class GameState:
     
     def _run_combat_gm_phase(self):
         """Run GM phase during combat."""
+        self._refresh_special_monster_states()
+        self._resolve_hazard_npc_rounds()
         self.monsters, self.combat_log = run_gm_phase(
             self.monsters, self.party, self.dungeon, self.combat_log
         )
         
         # Remove dead monsters from list
         self.monsters = [m for m in self.monsters if not m.is_dead]
+        self._refresh_special_monster_states()
         
         # Check if combat ends
         if not self.monsters:
@@ -458,7 +723,10 @@ class GameState:
         self.mode = "COMBAT"
         
         # Reset hero actions for new combat round
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h, "COMBAT")
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
         
         # Extract monster IDs
@@ -517,11 +785,26 @@ class GameState:
     
     def _start_combat_with_monsters(self, monsters: List[Monster]):
         """Start combat with already-instantiated monsters (from dungeon generation)."""
+        self._start_combat_with_monsters_configured(monsters)
+
+    def _start_combat_with_monsters_configured(
+        self,
+        monsters: List[Monster],
+        hero_surprise_bonus: int = 0,
+        gm_surprise_bonus: int = 0,
+        ignore_elf_surprise_bonus: bool = False,
+        force_gm_surprise: bool = False,
+        summary_prefix: str = "Combat started with",
+    ):
+        """Start combat with pre-placed monsters and optional surprise modifiers."""
         self.current_phase = "COMBAT"
         self.mode = "COMBAT"
         
         # Reset hero actions for new combat round
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h, "COMBAT")
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
         
         # Use the provided monsters (already placed during dungeon generation)
@@ -534,15 +817,23 @@ class GameState:
         if len(encountered_monsters) > 8:
             monster_summary += ", ..."
         self.combat_log.append(
-            f"Combat started with {len(encountered_monsters)} visible monsters: {monster_summary}"
+            f"{summary_prefix} {len(encountered_monsters)} visible monsters: {monster_summary}"
         )
         self._play_held_combat_counters()
         
         # Surprise roll
-        has_elf = any(h.race == "Elf" for h in self.party)
+        has_elf = any(h.race == "Elf" for h in self.party) and not ignore_elf_surprise_bonus
         has_sentry = any(m.is_sentry for m in self.monsters)
         
         winner, hero_roll, gm_roll = do_surprise_roll(has_elf, has_sentry)
+        hero_roll = min(12, hero_roll + hero_surprise_bonus)
+        gm_roll = min(12, gm_roll + gm_surprise_bonus)
+        if force_gm_surprise:
+            winner = "gm"
+        elif hero_roll >= gm_roll:
+            winner = "heroes"
+        else:
+            winner = "gm"
         
         self.combat_log.append(f"Surprise roll! Heroes: {hero_roll}, GM: {gm_roll}")
         
@@ -561,6 +852,199 @@ class GameState:
             self.hero_phase_active = True
         
         self.save_game()
+
+    def _start_room_hazard_combat(
+        self,
+        room: dict,
+        monster_ids: List[str],
+        reason: str,
+        prisoners: bool = False,
+        throne: bool = False,
+        hero_surprise_bonus: int = 0,
+        ignore_elf_surprise_bonus: bool = False,
+    ) -> List[Monster]:
+        """Start a room-based hazard combat using the room interior for placement."""
+        room_tiles = [
+            (x, y)
+            for (x, y) in self.dungeon.get_room_interior_tiles(room)
+            if self.dungeon.is_walkable(x, y)
+        ]
+        monsters = place_monsters_whq_rules(
+            monster_ids,
+            room_tiles,
+            self.dungeon,
+            self.party,
+            self.monster_library,
+            self.combat_log,
+        )
+        if prisoners:
+            for monster in monsters:
+                monster.weapons = [dict(weapon, damage_dice=1) for weapon in monster.weapons]
+                monster.is_sentry = False
+        if throne:
+            self._apply_throne_aura(room, monsters)
+        self._start_combat_with_monsters_configured(
+            monsters,
+            hero_surprise_bonus=hero_surprise_bonus,
+            ignore_elf_surprise_bonus=ignore_elf_surprise_bonus,
+            summary_prefix=f"{reason}:",
+        )
+        return monsters
+
+    def create_hazard_npc(self, npc_type: str) -> Monster:
+        """Create a hazard-room NPC or NPC-like opponent."""
+        if npc_type == "witch":
+            witch = Monster(
+                monster_id="hazard_witch",
+                name="Witch",
+                ws=6,
+                bs=7,
+                strength=3,
+                toughness=4,
+                speed=5,
+                bravery=7,
+                intelligence=8,
+                wounds=2,
+                pv=4,
+                weapons=[{"name": "Staff", "damage_dice": 1, "critical": 12, "fumble": 1}],
+                ranged={"name": "Hex Bolt", "range": 6, "damage_dice": 1},
+                is_sentry=False,
+                is_character=True,
+            )
+            setattr(witch, "witch_escape_pending", True)
+            setattr(witch, "witch_rounds_remaining", 2)
+            return witch
+        raise ValueError(f"Unsupported hazard NPC type: {npc_type}")
+
+    def place_hazard_chest(self, room: dict) -> Optional[Tuple[int, int]]:
+        """Place a visible chest for hazards such as the chasm room."""
+        anchor = get_hazard_anchor(room)
+        if anchor is None:
+            return None
+
+        interior_tiles = [
+            pos for pos in self.dungeon.get_room_interior_tiles(room)
+            if pos != anchor and self.dungeon.get_tile(*pos) == self.dungeon.TileType.FLOOR
+        ]
+        if not interior_tiles:
+            return None
+
+        chest_pos = max(
+            interior_tiles,
+            key=lambda pos: (abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1]), pos[1], pos[0]),
+        )
+        self.dungeon.grid[chest_pos] = self.dungeon.TileType.TREASURE_CLOSED
+        self.dungeon.treasure[chest_pos] = False
+        room["chest_pos"] = list(chest_pos)
+        room["chest_loot"] = {"gold": random.randint(1, 5) * 25}
+        room["chest_trapped"] = True
+        room["chest_opened"] = False
+        room["chest_trap_resolved"] = False
+        return chest_pos
+
+    def _apply_throne_aura(self, room: dict, monsters: List[Monster]):
+        """Mark the throne occupant and buff the rest of the room's monsters."""
+        anchor = get_hazard_anchor(room)
+        if not monsters or anchor is None:
+            return
+
+        leader = min(monsters, key=lambda monster: abs(monster.x - anchor[0]) + abs(monster.y - anchor[1]))
+        leader.x, leader.y = anchor
+        setattr(leader, "throne_leader", True)
+        setattr(leader, "throne_room_id", room.get("id"))
+
+        for monster in monsters:
+            if monster is leader:
+                continue
+            setattr(monster, "throne_guardian", True)
+            setattr(monster, "throne_room_id", room.get("id"))
+            setattr(monster, "throne_original_toughness", monster.toughness)
+            monster.toughness += 1
+            if monster.weapons:
+                original_weapons = [dict(weapon) for weapon in monster.weapons]
+                setattr(monster, "throne_original_weapons", original_weapons)
+                monster.weapons = [
+                    dict(weapon, damage_dice=weapon.get("damage_dice", 1) + 1)
+                    for weapon in monster.weapons
+                ]
+        self.combat_log.append("  Throne aura: one monster commands the throne and empowers the others.")
+
+    def _refresh_special_monster_states(self):
+        """Refresh transient monster states such as throne auras."""
+        throne_leaders = [
+            monster for monster in self.monsters
+            if getattr(monster, "throne_leader", False) and not monster.is_dead
+        ]
+        active_rooms = {getattr(monster, "throne_room_id", None) for monster in throne_leaders}
+        for monster in self.monsters:
+            room_id = getattr(monster, "throne_room_id", None)
+            if not getattr(monster, "throne_guardian", False):
+                continue
+            if room_id in active_rooms:
+                continue
+            if hasattr(monster, "throne_original_toughness"):
+                monster.toughness = getattr(monster, "throne_original_toughness")
+                delattr(monster, "throne_original_toughness")
+            if hasattr(monster, "throne_original_weapons"):
+                monster.weapons = getattr(monster, "throne_original_weapons")
+                delattr(monster, "throne_original_weapons")
+            if hasattr(monster, "throne_guardian"):
+                delattr(monster, "throne_guardian")
+            if hasattr(monster, "throne_room_id"):
+                delattr(monster, "throne_room_id")
+            self.combat_log.append(f"The throne aura fades from {monster.name}.")
+
+    def _find_room_by_id(self, room_id) -> Optional[dict]:
+        """Return a dungeon room by its stored ID."""
+        if self.dungeon is None:
+            return None
+        for room in self.dungeon.rooms:
+            if room.get("id") == room_id:
+                return room
+        return None
+
+    def _resolve_hazard_npc_rounds(self):
+        """Advance timed hazard NPC behaviors such as witches escaping."""
+        escaped_monsters: List[Monster] = []
+        for monster in self.monsters:
+            if monster.is_dead or not getattr(monster, "witch_escape_pending", False):
+                continue
+
+            rounds_remaining = int(getattr(monster, "witch_rounds_remaining", 1)) - 1
+            setattr(monster, "witch_rounds_remaining", rounds_remaining)
+            if rounds_remaining > 0:
+                self.combat_log.append(
+                    f"{monster.name} chants and prepares to flee the room."
+                )
+                continue
+
+            escaped_monsters.append(monster)
+
+        for monster in escaped_monsters:
+            room_id = getattr(monster, "witch_room_id", None)
+            room = self._find_room_by_id(room_id)
+            if room is not None:
+                hazard = room.get("hazard") or {}
+                hazard["witch_escaped"] = True
+                hazard["resolved"] = True
+            stolen = self.get_party_gold_total() // 2
+            if stolen > 0:
+                self.adjust_party_gold(-stolen)
+                self.gold_found = max(0, self.gold_found - stolen)
+                self.combat_log.append(
+                    f"The Witch teleports away, stealing {stolen} gold crowns from the party."
+                )
+            else:
+                self.combat_log.append("The Witch teleports away before the party can stop her.")
+            monster.is_dead = True
+
+    def _is_witch_sealed_away(self, room_id) -> bool:
+        """Whether the witch from a room has already escaped or been removed."""
+        room = self._find_room_by_id(room_id)
+        if room is None:
+            return False
+        hazard = room.get("hazard") or {}
+        return bool(hazard.get("witch_escaped"))
     
     def _start_combat_random(self, monster_ids: List[str], trigger_tile: Optional[Tuple[int, int]] = None):
         """Start combat with monsters at positions following WHQ placement rules."""
@@ -568,7 +1052,10 @@ class GameState:
         self.mode = "COMBAT"
         
         # Reset hero actions for new combat round
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h, "COMBAT")
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
         
         # Get valid spawn tiles
@@ -742,12 +1229,17 @@ class GameState:
         self.combat_log.append("Combat ended. Monsters defeated!")
         self.monsters = []
         for hero in self.party:
+            hero.clear_status_effects("combat")
+            hero.clear_status_effects("next_combat")
             if hero.is_ko and not hero.is_dead:
                 hero.current_wounds = 1
                 hero.is_ko = False
                 self.combat_log.append(f"{hero.name} regains consciousness with 1 wound.")
         # Reset for exploration phase
-        self.hero_movement_remaining = {h.id: h.speed for h in self.party}
+        self.hero_movement_remaining = {
+            h.id: self._get_movement_allowance_for_phase(h, "EXPLORATION")
+            for h in self.party
+        }
         self.hero_has_attacked.clear()
     
     def open_door(self, x: int, y: int) -> bool:
@@ -782,6 +1274,43 @@ class GameState:
         """Exit the dungeon and return to tavern."""
         self.mode = "TAVERN"
         self.combat_log.append("Party exits the dungeon!")
+
+        if self.expedition_followers.get("maiden"):
+            self.adjust_party_gold(100)
+            self.gold_found += 100
+            self.combat_log.append("The Maiden is returned safely and her family rewards the party with 100 gold crowns.")
+
+        if self.expedition_followers.get("rogue"):
+            betrayal_roll = random.randint(1, 12)
+            if betrayal_roll >= 7:
+                stolen = self.get_party_gold_total() // 2
+                if stolen > 0:
+                    self.adjust_party_gold(-stolen)
+                    self.gold_found = max(0, self.gold_found - stolen)
+                    self.combat_log.append(
+                        f"Rogue betrayal roll: {betrayal_roll}. The Rogue slips away with {stolen} gold crowns."
+                    )
+                else:
+                    self.combat_log.append(
+                        f"Rogue betrayal roll: {betrayal_roll}. The Rogue deserts the party but finds no gold to steal."
+                    )
+            else:
+                self.combat_log.append(
+                    f"Rogue betrayal roll: {betrayal_roll}. The Rogue keeps his bargain and leaves peacefully."
+                )
+
+        if self.expedition_followers.get("man_at_arms"):
+            self.combat_log.append(
+                "The rescued Man-at-Arms survives the expedition and is available as a henchman after the delve."
+            )
+
+        for hero in self.party:
+            if hero.current_fate > hero.max_fate:
+                hero.current_fate = hero.max_fate
+            hero.temp_fate_bonus = 0
+            hero.free_spell_cast = 0
+            hero.ko_turns = 0
+            hero.clear_status_effects()
         
         # Award experience
         for hero in self.party:
@@ -790,7 +1319,10 @@ class GameState:
         
         # Delete save
         if self.SAVE_FILE.exists():
-            self.SAVE_FILE.unlink()
+            try:
+                self.SAVE_FILE.unlink()
+            except OSError:
+                self.combat_log.append("Could not remove the expedition save file immediately.")
         
         # Save hero updates
         for hero in self.party:
@@ -803,7 +1335,10 @@ class GameState:
         
         # Delete save
         if self.SAVE_FILE.exists():
-            self.SAVE_FILE.unlink()
+            try:
+                self.SAVE_FILE.unlink()
+            except OSError:
+                pass
     
     def save_game(self):
         """Save current game state."""
@@ -822,11 +1357,35 @@ class GameState:
             "monsters": [
                 {
                     "id": m.id,
+                    "name": m.name,
                     "instance_id": m.instance_id,
                     "x": m.x,
                     "y": m.y,
+                    "ws": m.ws,
+                    "bs": m.bs,
+                    "strength": m.strength,
+                    "toughness": m.toughness,
+                    "speed": m.speed,
+                    "bravery": m.bravery,
+                    "intelligence": m.intelligence,
+                    "max_wounds": m.max_wounds,
                     "current_wounds": m.current_wounds,
-                    "is_dead": m.is_dead
+                    "pv": m.pv,
+                    "weapons": m.weapons,
+                    "ranged": m.ranged,
+                    "is_sentry": m.is_sentry,
+                    "is_character": m.is_character,
+                    "is_dead": m.is_dead,
+                    "special_state": {
+                        "throne_leader": getattr(m, "throne_leader", False),
+                        "throne_guardian": getattr(m, "throne_guardian", False),
+                        "throne_room_id": getattr(m, "throne_room_id", None),
+                        "throne_original_toughness": getattr(m, "throne_original_toughness", None),
+                        "throne_original_weapons": getattr(m, "throne_original_weapons", None),
+                        "witch_escape_pending": getattr(m, "witch_escape_pending", False),
+                        "witch_rounds_remaining": getattr(m, "witch_rounds_remaining", None),
+                        "witch_room_id": getattr(m, "witch_room_id", None),
+                    },
                 }
                 for m in self.monsters
             ],
@@ -840,6 +1399,7 @@ class GameState:
             "gold_found": self.gold_found,
             "dungeon_counter_pool": self.dungeon_counter_pool,
             "held_dungeon_counters": self.held_dungeon_counters,
+            "expedition_followers": self.expedition_followers,
         }
         
         self.SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -859,6 +1419,7 @@ class GameState:
             
             if data.get("dungeon"):
                 self.dungeon = Dungeon.from_dict(data["dungeon"])
+                self.dungeon._on_monster_placed = lambda m: self.monsters.append(m)
             
             # Restore party
             self.party = []
@@ -880,13 +1441,46 @@ class GameState:
             self.monsters = []
             for m_data in data.get("monsters", []):
                 monster = self.monster_library.create_monster(m_data["id"])
-                if monster:
-                    monster.instance_id = m_data["instance_id"]
-                    monster.x = m_data["x"]
-                    monster.y = m_data["y"]
-                    monster.current_wounds = m_data["current_wounds"]
-                    monster.is_dead = m_data["is_dead"]
-                    self.monsters.append(monster)
+                if not monster:
+                    monster = Monster(
+                        monster_id=m_data["id"],
+                        name=m_data.get("name", m_data["id"]),
+                        ws=m_data.get("ws", 1),
+                        bs=m_data.get("bs", 0),
+                        strength=m_data.get("strength", 1),
+                        toughness=m_data.get("toughness", 1),
+                        speed=m_data.get("speed", 1),
+                        bravery=m_data.get("bravery", 1),
+                        intelligence=m_data.get("intelligence", 1),
+                        wounds=m_data.get("max_wounds", 1),
+                        pv=m_data.get("pv", 1),
+                        weapons=m_data.get("weapons", []),
+                        ranged=m_data.get("ranged"),
+                        is_sentry=m_data.get("is_sentry", False),
+                        is_character=m_data.get("is_character", False),
+                    )
+                monster.instance_id = m_data["instance_id"]
+                monster.x = m_data["x"]
+                monster.y = m_data["y"]
+                monster.ws = m_data.get("ws", monster.ws)
+                monster.bs = m_data.get("bs", monster.bs)
+                monster.strength = m_data.get("strength", monster.strength)
+                monster.toughness = m_data.get("toughness", monster.toughness)
+                monster.speed = m_data.get("speed", monster.speed)
+                monster.bravery = m_data.get("bravery", monster.bravery)
+                monster.intelligence = m_data.get("intelligence", monster.intelligence)
+                monster.max_wounds = m_data.get("max_wounds", monster.max_wounds)
+                monster.current_wounds = m_data["current_wounds"]
+                monster.pv = m_data.get("pv", monster.pv)
+                monster.weapons = m_data.get("weapons", monster.weapons)
+                monster.ranged = m_data.get("ranged", monster.ranged)
+                monster.is_sentry = m_data.get("is_sentry", monster.is_sentry)
+                monster.is_character = m_data.get("is_character", monster.is_character)
+                monster.is_dead = m_data["is_dead"]
+                for key, value in m_data.get("special_state", {}).items():
+                    if value is not None:
+                        setattr(monster, key, value)
+                self.monsters.append(monster)
             
             self.current_phase = data.get("current_phase", "EXPLORATION")
             self.hero_phase_active = data.get("hero_phase_active", True)
@@ -898,6 +1492,10 @@ class GameState:
             self.gold_found = data.get("gold_found", 0)
             self.dungeon_counter_pool = data.get("dungeon_counter_pool", create_dungeon_counter_pool())
             self.held_dungeon_counters = data.get("held_dungeon_counters", [])
+            self.expedition_followers = data.get(
+                "expedition_followers",
+                {"maiden": False, "man_at_arms": False, "rogue": False},
+            )
             
             return True
         except Exception as e:

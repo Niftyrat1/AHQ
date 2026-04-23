@@ -54,7 +54,7 @@ def resolve_melee_attack(
     messages = []
     
     # Get hit roll needed
-    hit_needed = get_hit_roll_needed(attacker.ws, defender.ws)
+    hit_needed = get_hit_roll_needed(attacker.get_effective_ws(), defender.ws)
     
     # Roll to hit
     hit_roll = roll_d(12)
@@ -85,7 +85,7 @@ def resolve_melee_attack(
     if log is not None:
         log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
-    damage_dice = attacker.get_damage_dice()
+    damage_dice = attacker.get_damage_dice() + attacker.get_bonus_melee_damage_dice()
     damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
     if log is not None:
@@ -115,7 +115,7 @@ def resolve_monster_attack(
         (hit: bool, damage: int, hero_died_or_ko: bool)
     """
     # Get hit roll needed
-    hit_needed = get_hit_roll_needed(attacker.ws, defender.ws)
+    hit_needed = get_hit_roll_needed(attacker.ws, defender.get_effective_ws())
     
     # Roll to hit
     hit_roll = roll_d(12)
@@ -167,7 +167,7 @@ def resolve_monster_ranged_attack(
     Uses the monster's ranged profile for damage and BS for the attack roll.
     """
     ranged_profile = attacker.ranged or {}
-    hit_needed = get_hit_roll_needed(max(attacker.bs, 1), max(defender.bs, 1))
+    hit_needed = get_hit_roll_needed(max(attacker.bs, 1), max(defender.get_effective_bs(), 1))
     hit_roll = roll_d(12)
     critical_threshold = ranged_profile.get("critical", 12)
     fumble_threshold = ranged_profile.get("fumble", 1)
@@ -287,7 +287,7 @@ def find_target_hero(heroes: List[Hero], monsters: List[Monster]) -> Optional[He
         return None
     
     # Sort by WS (ascending), then by T (ascending)
-    valid_targets.sort(key=lambda h: (h.ws, h.toughness))
+    valid_targets.sort(key=lambda h: (h.get_effective_ws(), h.toughness))
     
     return valid_targets[0]
 
