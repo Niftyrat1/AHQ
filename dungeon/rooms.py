@@ -144,6 +144,7 @@ def generate_room(dungeon: "Dungeon", door_x: int, door_y: int,
     dungeon.grid[(door_x, door_y)] = dungeon.TileType.WALL
     if (door_x, door_y) in dungeon.doors:
         del dungeon.doors[(door_x, door_y)]
+    return False  # Indicate false door
 
 
 def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,

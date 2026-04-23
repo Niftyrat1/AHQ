@@ -487,6 +487,29 @@ class Dungeon:
             self.explored.add((x, y))
             return True
         
+        # Check if this might be a false door by trying to fit a small room first
+        # This prevents monsters from being placed in false doors
+        from .rooms import _check_room_fit
+        # Try a minimal 3x3 room (1x1 interior + walls)
+        if direction == (1, 0):  # East
+            test_x, test_y = x, y - 1
+        elif direction == (-1, 0):  # West
+            test_x, test_y = x - 3, y - 1
+        elif direction == (0, 1):  # South
+            test_x, test_y = x - 1, y
+        else:  # North
+            test_x, test_y = x - 1, y - 3
+        
+        # Check if even a minimal room could fit
+        can_fit = _check_room_fit(self, test_x, test_y, 3, 3, door_x=x, door_y=y)
+        
+        if not can_fit:
+            # This is likely a false door - convert to wall immediately
+            self._log(f"    Door at ({x}, {y}) is false - no room fits")
+            self.grid[(x, y)] = TileType.WALL
+            del self.doors[(x, y)]
+            return False  # Door removed, nothing to open
+        
         door_info = self.doors[(x, y)]
         door_info["is_open"] = True
         self.grid[(x, y)] = TileType.DOOR_OPEN
@@ -505,9 +528,17 @@ class Dungeon:
                 generate_passage_from(self, gen_x, gen_y, direction)
                 self._explore_from(x, y)
             else:
-                _generate_room(self, x, y, direction, from_passage=False)
+                room_generated = _generate_room(self, x, y, direction, from_passage=False)
+                if room_generated is False:
+                    # False door - room generation failed, door converted to wall
+                    # Skip any monster placement or passage features
+                    return True
         else:
-            _generate_room(self, x, y, direction, from_passage=False)
+            room_generated = _generate_room(self, x, y, direction, from_passage=False)
+            if room_generated is False:
+                # False door - room generation failed, door converted to wall
+                # Skip any monster placement or passage features
+                return True
         
         return True
     
