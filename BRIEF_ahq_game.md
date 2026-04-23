@@ -9,6 +9,41 @@ A single-player desktop game adaptation of Advanced HeroQuest, inspired by the G
 
 The tone is functional and atmospheric — dark dungeon aesthetic, clear readable UI, no animations required for the first version. Think character portraits in a sidebar, a top-down grid dungeon, and a scrolling combat log.
 
+## Current State
+
+The live codebase is an early playable vertical slice, not the full brief below. It currently covers:
+
+- hero creation with rolled race/stats/gold
+- party assembly
+- procedural dungeon exploration
+- basic melee combat
+- save/load
+- partial solo-GM automation
+- Phase A correctness fixes for room persistence/reveal, BFS movement, and core combat edge cases
+
+The live codebase does not yet fully implement the solo rules, the full turn structure, magic, full hazard interaction, hero ranged combat, henchmen, or between-expeditions systems.
+
+## Implementation Order
+
+The recommended implementation order is:
+
+1. Turn-structure alignment for exploration/combat under the solo rules
+2. Missing combat systems: hero ranged combat, equipment effects, and rules-faithful KO/fate/ranged resolution
+3. Dungeon counters, traps, hazard-room interaction, and treasure resolution
+4. Dungeon-screen overhaul: larger tiles, proper square artwork, real token/counter assets, and a minimap
+5. Magic, henchmen, and between-expeditions systems
+6. Quest-book and scripted solo content where procedural generation is not sufficient
+
+## Visual Roadmap
+
+The current tkinter board is functional but still uses simple placeholder square rendering. A planned visual overhaul should:
+
+- replace placeholder square fills with proper art for floor, wall, door, stairs, passage-end, treasure, and trap tiles
+- use token/counter assets from `assets/tokens/` for heroes, monsters, and key board markers where appropriate
+- increase board square size so token art reads cleanly instead of being compressed into the current 24px grid
+- add a minimap to preserve dungeon readability once the main board tiles become larger
+- rebalance the dungeon screen layout so the larger map, hero panel, and combat log all remain usable
+
 ---
 
 ## Technology Stack
@@ -118,6 +153,8 @@ Clicking "Create Hero" opens a creation flow:
 ---
 
 ## Game State Machine
+
+This section remains the target design, not a statement of current implementation.
 
 The game has two top-level modes, each with phases:
 

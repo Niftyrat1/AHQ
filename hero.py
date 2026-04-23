@@ -58,6 +58,7 @@ class Hero:
         # State
         self.is_dead = False
         self.is_ko = False
+        self.trap_disarm_bonus = 0
         
         # Position in dungeon (set when placed)
         self.x = 0
@@ -145,7 +146,8 @@ class Hero:
             "total_pv": self.total_pv,
             "equipment": self.equipment,
             "is_dead": self.is_dead,
-            "is_ko": self.is_ko
+            "is_ko": self.is_ko,
+            "trap_disarm_bonus": self.trap_disarm_bonus,
         }
     
     @classmethod
@@ -174,6 +176,7 @@ class Hero:
         hero.total_pv = data.get("total_pv", 0)
         hero.is_dead = data.get("is_dead", False)
         hero.is_ko = data.get("is_ko", False)
+        hero.trap_disarm_bonus = data.get("trap_disarm_bonus", 0)
         return hero
     
     def __repr__(self):

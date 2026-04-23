@@ -8,7 +8,17 @@ from typing import List, Tuple, Optional
 from hero import Hero
 from monster import Monster
 from dungeon import Dungeon
-from combat import resolve_monster_attack, find_target_hero, roll_d
+from combat import resolve_monster_attack, resolve_monster_ranged_attack, find_target_hero, roll_d
+
+
+DUNGEON_COUNTER_SET = [
+    "trap", "trap", "trap", "trap",
+    "wandering", "wandering", "wandering", "wandering",
+    "ambush", "ambush", "ambush", "ambush",
+    "escape", "escape", "escape", "escape",
+    "character", "character", "character", "character",
+    "fate", "fate", "fate", "fate",
+]
 
 
 def get_tactics(monsters: List[Monster]) -> str:
@@ -244,8 +254,7 @@ def run_gm_phase(
                 if dist <= monster.ranged.get("range", 12):
                     if dungeon._has_los(monster.x, monster.y, target.x, target.y):
                         log.append(f"  {monster.name} ranged attack on {target.name}")
-                        # For Phase 1, treat as melee with penalty
-                        resolve_monster_attack(monster, target, log)
+                        resolve_monster_ranged_attack(monster, target, log)
         
         elif tactic in ("MOVE_ATTACK", "ATTACK_MOVE"):
             target = find_target_hero(heroes, monsters)
@@ -276,14 +285,21 @@ def run_gm_phase(
     return monsters, log
 
 
-def check_dungeon_counter() -> Optional[str]:
+def create_dungeon_counter_pool() -> List[str]:
+    """Create and shuffle a fresh dungeon counter pool."""
+    pool = list(DUNGEON_COUNTER_SET)
+    random.shuffle(pool)
+    return pool
+
+
+def check_dungeon_counter(counter_pool: List[str]) -> Optional[str]:
     """
-    Check for dungeon counter (GM phase roll of 1 or 12).
+    Check for dungeon counter (GM phase roll of 1 or 12) and draw from the pool.
     Returns counter type or None.
     """
     roll = roll_d(12)
     if roll == 1 or roll == 12:
-        # Draw random counter (Phase 2)
-        counters = ["trap", "wandering", "ambush", "escape", "character", "fate"]
-        return random.choice(counters)
+        if not counter_pool:
+            counter_pool.extend(create_dungeon_counter_pool())
+        return counter_pool.pop()
     return None

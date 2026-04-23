@@ -8,6 +8,8 @@ from typing import List, Optional, Callable, Tuple
 from hero import Hero
 from monster import Monster
 from dungeon import Dungeon, TileType
+from gm import find_path_bfs
+from hazards import get_hazard_color, get_hazard_symbol
 
 
 TILE_SIZE = 24
@@ -245,7 +247,6 @@ class DungeonViewTk:
             return
         
         # Try to move
-        dist = self.dungeon.get_distance(self.selected_hero.x, self.selected_hero.y, x, y)
         tile = self.dungeon.get_tile(x, y)
         walkable = self.dungeon.is_walkable(x, y)
         
@@ -254,51 +255,27 @@ class DungeonViewTk:
         if self.on_get_hero_status:
             remaining_movement, _ = self.on_get_hero_status(self.selected_hero.id)
         
-        # print(f"[MOVE] Trying to move to ({x},{y}), tile: {tile.name}, walkable: {walkable}, dist: {dist}, remaining: {remaining_movement}")
+        occupied_positions = set()
+        for h in self.heroes:
+            if h != self.selected_hero and not h.is_dead and not h.is_ko:
+                occupied_positions.add((h.x, h.y))
+        for m in self.monsters:
+            if not m.is_dead:
+                occupied_positions.add((m.x, m.y))
+
+        path = find_path_bfs(
+            self.selected_hero.x, self.selected_hero.y,
+            x, y,
+            self.dungeon,
+            occupied_positions
+        )
+        dist = max(0, len(path) - 1) if path is not None else None
         
-        # Check path is clear - try both X-first and Y-first paths
-        path_clear = True
-        if dist > 0 and dist <= remaining_movement:
-            hero_x, hero_y = self.selected_hero.x, self.selected_hero.y
-            target_x, target_y = x, y
-            
-            # Path 1: X first, then Y
-            curr_x, curr_y = hero_x, hero_y
-            path1_clear = True
-            while curr_x != target_x:
-                curr_x += 1 if target_x > curr_x else -1
-                if not self.dungeon.is_walkable(curr_x, curr_y):
-                    path1_clear = False
-                    break
-            if path1_clear:
-                while curr_y != target_y:
-                    curr_y += 1 if target_y > curr_y else -1
-                    if not self.dungeon.is_walkable(curr_x, curr_y):
-                        path1_clear = False
-                        break
-            
-            # Path 2: Y first, then X
-            curr_x, curr_y = hero_x, hero_y
-            path2_clear = True
-            while curr_y != target_y:
-                curr_y += 1 if target_y > curr_y else -1
-                if not self.dungeon.is_walkable(curr_x, curr_y):
-                    path2_clear = False
-                    break
-            if path2_clear:
-                while curr_x != target_x:
-                    curr_x += 1 if target_x > curr_x else -1
-                    if not self.dungeon.is_walkable(curr_x, curr_y):
-                        path2_clear = False
-                        break
-            
-            path_clear = path1_clear or path2_clear
-        
-        if dist <= remaining_movement and walkable and path_clear:
+        if path is not None and dist is not None and dist <= remaining_movement and walkable:
             # Check not occupied
             occupied = False
             for h in self.heroes:
-                if h != self.selected_hero and not h.is_dead and h.x == x and h.y == y:
+                if h != self.selected_hero and not h.is_dead and not h.is_ko and h.x == x and h.y == y:
                     occupied = True
                     break
             for m in self.monsters:
@@ -319,8 +296,12 @@ class DungeonViewTk:
             else:
                 self._show_message("Square occupied!")
         else:
-            if dist > self.selected_hero.speed:
+            if dist is not None and dist > remaining_movement:
                 self._show_message("Too far!")
+            elif not walkable:
+                self._show_message(f"Blocked: {tile.name}")
+            else:
+                self._show_message("Path blocked!")
     
     def _get_monster_at(self, x: int, y: int) -> Optional[Monster]:
         """Get monster at position."""
@@ -377,10 +358,18 @@ class DungeonViewTk:
                     self.canvas.create_rectangle(cx, cy, cx+TILE_SIZE, cy+TILE_SIZE,
                                                 fill="#0a0a0f", outline="")
                 else:
+                    room = None
+                    if tile == TileType.FLOOR:
+                        room = self.dungeon.find_room_for_tile(x, y)
+
                     # Tile colors
                     if tile == TileType.FLOOR:
-                        color = "#4a4a55"
-                        outline = "#3a3a45"
+                        if room is not None and room.get("room_kind") == "hazard":
+                            color = get_hazard_color(room.get("hazard"))
+                            outline = "#d1b24a"
+                        else:
+                            color = "#4a4a55"
+                            outline = "#3a3a45"
                     elif tile == TileType.WALL:
                         color = "#1a1a2a"    # Dark navy — clearly different from floor
                         outline = "#2a2a3a"
@@ -405,6 +394,9 @@ class DungeonViewTk:
                         else:
                             color = "#FFD700"  # Gold/yellow for stairs down
                             outline = "#B8860B"
+                    elif tile == TileType.STATUE:
+                        color = "#7a7a84"
+                        outline = "#d1b24a"
                     else:
                         color = "#3a3a45"
                         outline = "#2a2a35"
@@ -428,6 +420,41 @@ class DungeonViewTk:
                         else:
                             self.canvas.create_text(cx+TILE_SIZE//2, cy+TILE_SIZE//2,
                                                    text="DOWN", fill="#222", font=("Arial", 7))
+
+                    if (
+                        room is not None
+                        and room.get("room_kind") == "hazard"
+                        and room.get("hazard_anchor") == [x, y]
+                    ):
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text=get_hazard_symbol(room.get("hazard")),
+                            fill="#f6e28a",
+                            font=("Arial", 7, "bold")
+                        )
+                    elif tile == TileType.STATUE:
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text="ST",
+                            fill="#f6e28a",
+                            font=("Arial", 7, "bold")
+                        )
+
+                    trap_marker = self.dungeon.trap_markers.get((x, y))
+                    if trap_marker:
+                        self.canvas.create_rectangle(
+                            cx + 4, cy + 4, cx + TILE_SIZE - 4, cy + TILE_SIZE - 4,
+                            outline="#ff9f43", width=2
+                        )
+                        self.canvas.create_text(
+                            cx + TILE_SIZE // 2,
+                            cy + TILE_SIZE // 2,
+                            text=trap_marker.get("symbol", "TR"),
+                            fill="#ffd166",
+                            font=("Arial", 7, "bold")
+                        )
         
         # Draw monsters
         for m in self.monsters:
@@ -613,6 +640,13 @@ class DungeonViewTk:
         count_walkable = 0
         count_onscreen = 0
         count_drawn = 0
+        occupied_positions = set()
+        for other_hero in self.heroes:
+            if other_hero != hero and not other_hero.is_dead and not other_hero.is_ko:
+                occupied_positions.add((other_hero.x, other_hero.y))
+        for monster in self.monsters:
+            if not monster.is_dead:
+                occupied_positions.add((monster.x, monster.y))
         for dx in range(-movement_remaining, movement_remaining + 1):
             for dy in range(-movement_remaining, movement_remaining + 1):
                 if abs(dx) + abs(dy) > movement_remaining or (dx == 0 and dy == 0):
@@ -626,52 +660,23 @@ class DungeonViewTk:
                     continue
                 if (tx, ty) not in self.dungeon.explored:
                     continue
-                # Check path is clear - natural movement (any x/y combination)
-                path_clear = True
-                dist = abs(dx) + abs(dy)
-                if dist > 0:
-                    # Try path 1: X first, then Y
-                    curr_x, curr_y = hero.x, hero.y
-                    path1_tiles = []
-                    while curr_x != tx:
-                        curr_x += 1 if tx > curr_x else -1
-                        path1_tiles.append((curr_x, curr_y))
-                    while curr_y != ty:
-                        curr_y += 1 if ty > curr_y else -1
-                        path1_tiles.append((curr_x, curr_y))
-                    
-                    path1_clear = True
-                    for path_tile in path1_tiles[:-1] if path1_tiles else []:
-                        if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
-                            path1_clear = False
-                            break
-                    
-                    # Try path 2: Y first, then X
-                    curr_x, curr_y = hero.x, hero.y
-                    path2_tiles = []
-                    while curr_y != ty:
-                        curr_y += 1 if ty > curr_y else -1
-                        path2_tiles.append((curr_x, curr_y))
-                    while curr_x != tx:
-                        curr_x += 1 if tx > curr_x else -1
-                        path2_tiles.append((curr_x, curr_y))
-                    
-                    path2_clear = True
-                    for path_tile in path2_tiles[:-1] if path2_tiles else []:
-                        if not self.dungeon.is_walkable(path_tile[0], path_tile[1]):
-                            path2_clear = False
-                            break
-                    
-                    path_clear = path1_clear or path2_clear
-                
-                if not path_clear:
+                path = find_path_bfs(
+                    hero.x, hero.y,
+                    tx, ty,
+                    self.dungeon,
+                    occupied_positions
+                )
+                if path is None:
+                    continue
+                dist = max(0, len(path) - 1)
+                if dist > movement_remaining:
                     continue
                 
                 count_walkable += 1
                 
                 occupied = False
                 for h in self.heroes:
-                    if not h.is_dead and h.x == tx and h.y == ty:
+                    if h != hero and not h.is_dead and not h.is_ko and h.x == tx and h.y == ty:
                         occupied = True
                         break
                 for m in self.monsters:

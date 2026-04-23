@@ -6,6 +6,8 @@ Handles room creation beyond doors in passages.
 import random
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple
 
+from hazards import roll_hazard_room, describe_hazard, hazard_blocks_movement
+
 if TYPE_CHECKING:
     from .dungeon import Dungeon
 
@@ -198,6 +200,9 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
         'searched_secrets': False,
         'searched_treasure': False,
         'searched_walls': set(),
+        'room_kind': 'normal',
+        'hazard': None,
+        'hazard_anchor': None,
     }
     dungeon.rooms.append(room_data)
     dungeon._log(f"    Generated {room_type} room at ({start_x}, {start_y}) "
@@ -206,9 +211,21 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
     # Roll for room type
     from monster import roll_lair_encounter, roll_quest_room_encounter
     room_roll = random.randint(1, 12)
-    if 9 <= room_roll <= 10:
+    if 7 <= room_roll <= 8:
+        room_data['room_kind'] = 'hazard'
+        room_data['hazard'] = roll_hazard_room()
+        if room_tiles:
+            sorted_tiles = sorted(room_tiles)
+            hazard_anchor = sorted_tiles[len(sorted_tiles) // 2]
+            room_data['hazard_anchor'] = list(hazard_anchor)
+            if hazard_blocks_movement(room_data['hazard']):
+                dungeon.grid[hazard_anchor] = dungeon.TileType.STATUE
+        dungeon._log(f"    Hazard room: {describe_hazard(room_data['hazard'])}")
+    elif 9 <= room_roll <= 10:
         # Lair room
+        room_data['room_kind'] = 'lair'
         monster_ids = roll_lair_encounter()
+        dungeon._log(f"    Lair room stocked with {len(monster_ids)} monster(s): {', '.join(monster_ids)}")
         available = list(room_tiles)
         random.shuffle(available)
         for i, monster_id in enumerate(monster_ids):
@@ -218,7 +235,9 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
             dungeon._place_monster(monster_id, pos[0], pos[1])
     elif 11 <= room_roll <= 12:
         # Quest room
+        room_data['room_kind'] = 'quest'
         monster_ids = roll_quest_room_encounter()
+        dungeon._log(f"    Quest room stocked with {len(monster_ids)} monster(s): {', '.join(monster_ids)}")
         available = list(room_tiles)
         random.shuffle(available)
         for i, monster_id in enumerate(monster_ids):

@@ -143,6 +143,12 @@ def main():
         hero = next((h for h in game.party if h.id == hero_id), None)
         if not hero or not game.dungeon:
             return []
+
+        if game.current_phase != "EXPLORATION":
+            return []
+
+        if game.hero_movement_remaining.get(hero_id, 0) <= 0:
+            return []
         
         return get_available_actions(hero, game.dungeon)
     
@@ -150,6 +156,15 @@ def main():
         """Execute a dungeon action."""
         hero = next((h for h in game.party if h.id == hero_id), None)
         if not hero or not game.dungeon:
+            return
+
+        if game.current_phase != "EXPLORATION":
+            dungeon_view.add_log_message("That action can only be used during exploration.")
+            return
+
+        if game.hero_movement_remaining.get(hero_id, 0) <= 0:
+            dungeon_view.add_log_message(f"{hero.name} has already used their turn.")
+            dungeon_view.update_state()
             return
         
         # Execute the action

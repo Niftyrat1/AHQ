@@ -79,52 +79,38 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
             next_b_x = track_b_x + direction[0]
             next_b_y = track_b_y + direction[1]
 
-            # Check for collision with existing tiles (only after placing first tiles)
-            # Allow connecting to existing FLOOR/PASSAGE_END but stop at solid walls
-            skip_a = False
-            skip_b = False
+            # Check for collision with existing tiles (only after placing first tiles).
+            # Passages should not merge into existing sections except through explicit
+            # doors/junctions, so any occupied tile ahead blocks this extension.
             if tiles_placed >= 2:
                 tile_a = dungeon.grid.get((next_a_x, next_a_y), dungeon.TileType.UNEXPLORED)
                 tile_b = dungeon.grid.get((next_b_x, next_b_y), dungeon.TileType.UNEXPLORED)
 
-                # Hard collision tiles that completely block passage
-                blocking_tiles = (dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED,
-                                  dungeon.TileType.STAIRS_DOWN, dungeon.TileType.STAIRS_OUT)
-
-                # If both tracks would hit blocking tiles, stop
-                if tile_a in blocking_tiles and tile_b in blocking_tiles:
+                if tile_a != dungeon.TileType.UNEXPLORED or tile_b != dungeon.TileType.UNEXPLORED:
                     collision_detected = True
                     break
-
-                # If one track hits a blocking tile, skip that track only
-                if tile_a in blocking_tiles:
-                    skip_a = True
-                if tile_b in blocking_tiles:
-                    skip_b = True
 
             # Step both tracks forward by direction
             track_a_x, track_a_y = next_a_x, next_a_y
             track_b_x, track_b_y = next_b_x, next_b_y
 
-            if not skip_a:
-                dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
-                passage_tiles.append((track_a_x, track_a_y))
-                last_a = (track_a_x, track_a_y)
-                tiles_placed += 1
-                # Place wall on passage side
-                wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
-                if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
-                    dungeon.grid[wall_a] = dungeon.TileType.WALL
+            dungeon.grid[(track_a_x, track_a_y)] = dungeon.TileType.FLOOR
+            passage_tiles.append((track_a_x, track_a_y))
+            last_a = (track_a_x, track_a_y)
+            tiles_placed += 1
+            # Place wall on passage side
+            wall_a = (track_a_x + wall_offset_a[0], track_a_y + wall_offset_a[1])
+            if dungeon.grid.get(wall_a, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+                dungeon.grid[wall_a] = dungeon.TileType.WALL
 
-            if not skip_b:
-                dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
-                passage_tiles.append((track_b_x, track_b_y))
-                last_b = (track_b_x, track_b_y)
-                tiles_placed += 1
-                # Place wall on passage side
-                wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
-                if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
-                    dungeon.grid[wall_b] = dungeon.TileType.WALL
+            dungeon.grid[(track_b_x, track_b_y)] = dungeon.TileType.FLOOR
+            passage_tiles.append((track_b_x, track_b_y))
+            last_b = (track_b_x, track_b_y)
+            tiles_placed += 1
+            # Place wall on passage side
+            wall_b = (track_b_x + wall_offset_b[0], track_b_y + wall_offset_b[1])
+            if dungeon.grid.get(wall_b, dungeon.TileType.UNEXPLORED) == dungeon.TileType.UNEXPLORED:
+                dungeon.grid[wall_b] = dungeon.TileType.WALL
 
     # Check if we actually generated any tiles
     if not passage_tiles or last_a is None or last_b is None:
@@ -144,21 +130,28 @@ def generate_passage_from(dungeon: "Dungeon", x: int, y: int,
     if 2 <= feature_roll <= 4 or 22 <= feature_roll <= 24:
         if passage_tiles:
             from monster import roll_lair_encounter
+            monster_ids = roll_lair_encounter()
+            dungeon._log(
+                f"    Passage feature roll {feature_roll}: wandering monsters placed in passage "
+                f"({len(monster_ids)} monsters)"
+            )
             mid = (len(passage_tiles) // 4) * 2
-            for i, monster_id in enumerate(roll_lair_encounter()):
+            for i, monster_id in enumerate(monster_ids):
                 idx = min(mid + i * 2, len(passage_tiles) - 2)
                 pos = passage_tiles[idx]
                 dungeon._place_monster(monster_id, pos[0], pos[1])
 
     elif 16 <= feature_roll <= 19:
+        dungeon._log(f"    Passage feature roll {feature_roll}: one side door")
         _place_side_door(dungeon, passage_tiles, direction)
 
     elif 20 <= feature_roll <= 21:
+        dungeon._log(f"    Passage feature roll {feature_roll}: two side doors")
         _place_side_door(dungeon, passage_tiles, direction)
         _place_side_door(dungeon, passage_tiles, direction)
 
     # Roll for passage end (2D12)
-    end_roll = random.randint(2, 24)
+    end_roll = random.randint(1, 12) + random.randint(1, 12)
 
     # Resolve passage end
     resolve_passage_end(dungeon, last_a, last_b, direction, end_roll)

@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from .dungeon import Dungeon
 
 
+def _set_wall_if_clear(dungeon: "Dungeon", pos: Tuple[int, int]):
+    """Place a wall unless that would overwrite an existing floor-like tile.
+
+    Wall-on-wall overlap is fine. Wall over doors/stairs/floor is not.
+    """
+    tile = dungeon.get_tile(*pos)
+    if tile in (dungeon.TileType.UNEXPLORED, dungeon.TileType.WALL):
+        dungeon.grid[pos] = dungeon.TileType.WALL
+
+
 def _get_both_perpendicular(direction: Tuple[int, int]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
     """Get both perpendicular directions (left and right turns)."""
     if direction == (0, -1):  # North
@@ -109,7 +119,7 @@ def _generate_t_junction(dungeon: "Dungeon", left_pos, right_pos, direction,
         side_right = (wall_right[0], wall_right[1] + 1)
     
     for pos in [wall_left, wall_right, side_left, side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
     
     # Set pending for all 4 T-junction tiles with exit directions
     perp_dirs = _get_both_perpendicular(direction)
@@ -147,7 +157,7 @@ def _generate_dead_end(dungeon: "Dungeon", left_pos, right_pos, direction,
     
     # Place side walls alongside the 2x2 dead end
     for pos in [f1_side_left, f1_side_right, f2_side_left, f2_side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
     
     # Capping walls one step beyond the 2x2 dead end
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
@@ -161,7 +171,7 @@ def _generate_dead_end(dungeon: "Dungeon", left_pos, right_pos, direction,
         side_right = (wall_right[0], wall_right[1] + 1)
     
     for pos in [wall_left, wall_right, side_left, side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
     
     # Explore the 2x2 dead end and all its walls
     all_walls = [f1_side_left, f1_side_right, f2_side_left, f2_side_right,
@@ -234,7 +244,7 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     
     for pos in wall_tiles:
         outer_wall = (pos[0] + turn_side_offset[0], pos[1] + turn_side_offset[1])
-        dungeon.grid[outer_wall] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, outer_wall)
         dungeon.explored.add(outer_wall)
     # Place capping walls to block forward direction (one step beyond the 2x2)
     wall_left = (forward2_left[0] + direction[0], forward2_left[1] + direction[1])
@@ -249,7 +259,7 @@ def _generate_turn(dungeon: "Dungeon", left_pos, right_pos, direction, turn_type
     
     # Explore capping walls
     for pos in [wall_left, wall_right, side_left, side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
         dungeon.explored.add(pos)
     
     # Set pending only for forward tiles (the turn extension)
@@ -289,7 +299,7 @@ def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_
     
     # Place side walls alongside the 2x2 stairs
     for pos in [f1_side_left, f1_side_right, f2_side_left, f2_side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
         dungeon.explored.add(pos)
     
     # Capping walls one step beyond the 2x2 stairs
@@ -300,5 +310,5 @@ def _generate_stairs(dungeon: "Dungeon", left_pos, right_pos, direction, stairs_
     
     # Place and explore capping walls
     for pos in [wall_left, wall_right, cap_side_left, cap_side_right]:
-        dungeon.grid[pos] = dungeon.TileType.WALL
+        _set_wall_if_clear(dungeon, pos)
         dungeon.explored.add(pos)

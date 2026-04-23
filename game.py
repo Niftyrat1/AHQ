@@ -11,11 +11,13 @@ from hero import Hero, HeroManager
 from monster import Monster, MonsterLibrary, roll_lair_encounter, roll_quest_room_encounter
 from dungeon import Dungeon
 from combat import (
-    resolve_melee_attack, resolve_monster_attack,
+    resolve_melee_attack, resolve_monster_attack, apply_damage_to_hero,
     do_surprise_roll, find_target_hero
 )
-from gm import run_gm_phase, check_dungeon_counter
+from gm import run_gm_phase, check_dungeon_counter, find_path_bfs, create_dungeon_counter_pool
+from hazards import describe_hazard
 from monster_placement import place_monsters_whq_rules, surprise_move_monster
+from traps import resolve_trap_event
 
 
 class GameState:
@@ -42,6 +44,8 @@ class GameState:
         self.experience_gained = 0
         self.gold_found = 0
         self.dungeon_debug_log: List[str] = []  # For tracking dungeon generation
+        self.dungeon_counter_pool: List[str] = []
+        self.held_dungeon_counters: List[str] = []
     
     def start_quest(self, party: List[Hero]):
         """Begin a new dungeon expedition."""
@@ -62,6 +66,8 @@ class GameState:
             self.combat_log.append(f"[DUNGEON] {msg}")
         self.experience_gained = 0
         self.gold_found = 0
+        self.dungeon_counter_pool = create_dungeon_counter_pool()
+        self.held_dungeon_counters = []
         
         # Initialize movement tracking
         self.hero_movement_remaining = {h.id: h.speed for h in self.party}
@@ -79,75 +85,14 @@ class GameState:
     
     def move_hero(self, hero: Hero, x: int, y: int):
         """Move a hero to a new position."""
-        if hero.is_dead or hero.is_ko:
-            self.combat_log.append(f"{hero.name} is dead/KO!")
+        can_move, message, dist = self.can_move_hero_to(hero, x, y)
+        if not can_move:
+            if message:
+                self.combat_log.append(message)
             return False
-        
-        # Check remaining movement
+
         remaining = self.hero_movement_remaining.get(hero.id, hero.speed)
-        if remaining <= 0:
-            self.combat_log.append(f"{hero.name} has no movement left!")
-            return False
-        
-        # Check distance
-        dist = abs(hero.x - x) + abs(hero.y - y)
-        if dist > remaining:
-            self.combat_log.append(f"Too far! Distance {dist} > remaining movement {remaining}")
-            return False
-        
-        # Check if walkable
-        tile = self.dungeon.get_tile(x, y)
-        if not self.dungeon.is_walkable(x, y):
-            self.combat_log.append(f"Cannot move to ({x},{y}): tile is {tile.name}")
-            return False
-        
-        # Check path is clear - try both X-first and Y-first
-        dist = abs(hero.x - x) + abs(hero.y - y)
-        if dist > 0:
-            # Path 1: X first, then Y
-            curr_x, curr_y = hero.x, hero.y
-            path1_clear = True
-            while curr_x != x:
-                curr_x += 1 if x > curr_x else -1
-                if not self.dungeon.is_walkable(curr_x, curr_y):
-                    path1_clear = False
-                    break
-            if path1_clear:
-                while curr_y != y:
-                    curr_y += 1 if y > curr_y else -1
-                    if not self.dungeon.is_walkable(curr_x, curr_y):
-                        path1_clear = False
-                        break
-            
-            # Path 2: Y first, then X
-            curr_x, curr_y = hero.x, hero.y
-            path2_clear = True
-            while curr_y != y:
-                curr_y += 1 if y > curr_y else -1
-                if not self.dungeon.is_walkable(curr_x, curr_y):
-                    path2_clear = False
-                    break
-            if path2_clear:
-                while curr_x != x:
-                    curr_x += 1 if x > curr_x else -1
-                    if not self.dungeon.is_walkable(curr_x, curr_y):
-                        path2_clear = False
-                        break
-            
-            if not path1_clear and not path2_clear:
-                self.combat_log.append(f"Cannot move to ({x},{y}): path is blocked")
-                return False
-        
-        # Check for monsters blocking
-        for m in self.monsters:
-            if not m.is_dead and m.x == x and m.y == y:
-                return False
-        
-        # Check for other heroes
-        for h in self.party:
-            if h != hero and not h.is_dead and h.x == x and h.y == y:
-                return False
-        
+
         # Move
         hero.x, hero.y = x, y
         
@@ -163,12 +108,66 @@ class GameState:
         
         # Check for encounter triggers
         self._check_triggers(x, y)
+
+        if self.current_phase == "EXPLORATION":
+            self._enter_combat_if_monsters_visible()
         
         return True
+
+    def _get_occupied_tiles_for_hero(self, hero: Hero) -> set:
+        """Return occupied tiles that block hero movement."""
+        occupied = set()
+        for other in self.party:
+            if other != hero and not other.is_dead and not other.is_ko:
+                occupied.add((other.x, other.y))
+        for monster in self.monsters:
+            if not monster.is_dead:
+                occupied.add((monster.x, monster.y))
+        return occupied
+
+    def _find_hero_path(self, hero: Hero, x: int, y: int) -> Optional[List[Tuple[int, int]]]:
+        """Find a legal movement path for a hero using BFS."""
+        occupied = self._get_occupied_tiles_for_hero(hero)
+        return find_path_bfs(hero.x, hero.y, x, y, self.dungeon, occupied)
+
+    def can_move_hero_to(self, hero: Hero, x: int, y: int) -> Tuple[bool, str, int]:
+        """Check whether a hero can legally move to a tile."""
+        if hero.is_dead or hero.is_ko:
+            return False, f"{hero.name} is dead/KO!", 0
+        
+        # Check remaining movement
+        remaining = self.hero_movement_remaining.get(hero.id, hero.speed)
+        if remaining <= 0:
+            return False, f"{hero.name} has no movement left!", 0
+        
+        # Check if walkable
+        tile = self.dungeon.get_tile(x, y)
+        if not self.dungeon.is_walkable(x, y):
+            return False, f"Cannot move to ({x},{y}): tile is {tile.name}", 0
+
+        if (x, y) in self._get_occupied_tiles_for_hero(hero):
+            return False, "Square occupied!", 0
+
+        path = self._find_hero_path(hero, x, y)
+        if path is None:
+            return False, f"Cannot move to ({x},{y}): path is blocked", 0
+
+        dist = max(0, len(path) - 1)
+        if dist > remaining:
+            return False, f"Too far! Distance {dist} > remaining movement {remaining}", dist
+
+        return True, "", dist
     
     def _check_triggers(self, x: int, y: int):
         """Check for triggered events at position."""
         tile = self.dungeon.get_tile(x, y)
+
+        room = self.dungeon.find_room_for_tile(x, y)
+        if room is not None and room.get("room_kind") == "hazard":
+            hazard = room.get("hazard")
+            if hazard and not hazard.get("revealed", False):
+                hazard["revealed"] = True
+                self.combat_log.append(f"Hazard room revealed: {describe_hazard(hazard)}.")
         
         if tile.value == 10:  # STAIRS_OUT
             self._exit_dungeon()
@@ -210,6 +209,47 @@ class GameState:
             self.combat_log.append("Monsters encountered!")
             self._start_combat_with_monsters(triggered)
             return
+
+    def _get_visible_monsters(self) -> List[Monster]:
+        """Return monsters currently visible to any active hero."""
+        visible = []
+        active_heroes = [hero for hero in self.party if not hero.is_dead and not hero.is_ko]
+        for monster in self.monsters:
+            if monster.is_dead:
+                continue
+            for hero in active_heroes:
+                if self.dungeon._has_los(hero.x, hero.y, monster.x, monster.y):
+                    visible.append(monster)
+                    break
+        return visible
+
+    def _describe_monster_location(self, monster: Monster) -> str:
+        """Return a short location label for a visible monster."""
+        room = self.dungeon.find_room_for_tile(monster.x, monster.y)
+        if room is not None:
+            return f"room@({monster.x},{monster.y})"
+        return f"passage@({monster.x},{monster.y})"
+
+    def _enter_combat_if_monsters_visible(self) -> bool:
+        """Switch to combat if monsters are visible during exploration."""
+        if self.current_phase != "EXPLORATION":
+            return False
+
+        visible_monsters = self._get_visible_monsters()
+        if not visible_monsters:
+            return False
+
+        monster_names = ", ".join(
+            f"{monster.name} {self._describe_monster_location(monster)}"
+            for monster in visible_monsters[:6]
+        )
+        if len(visible_monsters) > 6:
+            monster_names += ", ..."
+        self.combat_log.append(
+            f"Visible monsters force combat: {len(visible_monsters)} monster(s) in sight: {monster_names}."
+        )
+        self._start_combat_with_monsters(visible_monsters)
+        return True
 
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""
@@ -265,12 +305,135 @@ class GameState:
     
     def _run_exploration_gm_phase(self):
         """Run GM phase during exploration."""
+        if self._enter_combat_if_monsters_visible():
+            return
+
         # Check for dungeon counter
-        counter = check_dungeon_counter()
+        counter = check_dungeon_counter(self.dungeon_counter_pool)
         if counter:
-            self.combat_log.append(f"Dungeon Counter: {counter}")
+            self.combat_log.append(f"Dungeon Counter drawn: {counter}")
+            self._resolve_dungeon_counter(counter)
         
         self.combat_log.append("GM Phase complete.")
+
+    def _get_active_heroes(self) -> List[Hero]:
+        """Return heroes who can currently be affected by dungeon events."""
+        return [hero for hero in self.party if not hero.is_dead and not hero.is_ko]
+
+    def _resolve_dungeon_counter(self, counter: str):
+        """Apply a drawn dungeon counter."""
+        if counter == "wandering":
+            self._resolve_wandering_counter()
+        elif counter == "ambush":
+            if self.current_phase == "COMBAT":
+                self._resolve_ambush_counter()
+            else:
+                self.held_dungeon_counters.append(counter)
+                self.combat_log.append("  Ambush counter held until the start of a combat turn.")
+        elif counter == "character":
+            self._resolve_character_counter()
+        elif counter == "fate":
+            self._resolve_fate_counter()
+        elif counter == "trap":
+            self._resolve_trap_counter()
+        elif counter == "escape":
+            self._resolve_escape_counter()
+        else:
+            self.combat_log.append(f"  No handler for counter '{counter}'.")
+
+    def _choose_counter_target_hero(self) -> Optional[Hero]:
+        """Pick an active hero for a dungeon counter effect."""
+        active_heroes = self._get_active_heroes()
+        if not active_heroes:
+            return None
+        return random.choice(active_heroes)
+
+    def _resolve_wandering_counter(self):
+        """Resolve a wandering-monster dungeon counter."""
+        hero = self._choose_counter_target_hero()
+        if hero is None:
+            self.combat_log.append("  No active hero available for wandering monsters.")
+            return
+
+        self.combat_log.append(f"  Wandering monsters close on {hero.name}.")
+        monster_ids = roll_lair_encounter()
+        self._start_combat_random(monster_ids, trigger_tile=(hero.x, hero.y))
+
+    def _resolve_ambush_counter(self):
+        """Resolve an ambush dungeon counter."""
+        if self.current_phase != "COMBAT":
+            self.combat_log.append("  Ambush counter cannot be played outside combat.")
+            return
+
+        hero = self._choose_counter_target_hero()
+        if hero is None:
+            self.combat_log.append("  No active hero available for an ambush.")
+            return
+
+        self.combat_log.append(f"  Ambush! Monsters spring out near {hero.name}.")
+        monster_ids = roll_lair_encounter()
+        self._spawn_reinforcements(monster_ids, trigger_tile=(hero.x, hero.y), reason="Ambush")
+        self.combat_log.append("  Ambush counter adds reinforcements to the current fight.")
+
+    def _resolve_character_counter(self):
+        """Resolve a character-monster dungeon counter."""
+        hero = self._choose_counter_target_hero()
+        if hero is None:
+            self.combat_log.append("  No active hero available for a character encounter.")
+            return
+
+        character_ids = [
+            monster_id
+            for monster_id, data in self.monster_library.templates.items()
+            if data.get("is_character")
+        ]
+        if not character_ids:
+            self.combat_log.append("  Character counter drawn, but no character monsters are configured.")
+            return
+
+        monster_id = random.choice(character_ids)
+        monster_name = self.monster_library.templates[monster_id].get("name", monster_id)
+        self.combat_log.append(f"  Character monster encountered: {monster_name}.")
+        self._start_combat_random([monster_id], trigger_tile=(hero.x, hero.y))
+
+    def _resolve_fate_counter(self):
+        """Resolve a fate dungeon counter."""
+        candidates = [hero for hero in self.party if not hero.is_dead and hero.current_fate < hero.max_fate]
+        if not candidates:
+            self.combat_log.append("  Fate smiles on the party, but no hero has spent any Fate yet.")
+            return
+
+        hero = min(candidates, key=lambda h: (h.current_fate, h.name))
+        hero.current_fate += 1
+        self.combat_log.append(f"  {hero.name} regains 1 Fate Point.")
+
+    def _resolve_trap_counter(self):
+        """Resolve a trap dungeon counter."""
+        hero = self._choose_counter_target_hero()
+        if hero is None:
+            self.combat_log.append("  No active hero available to trigger a trap.")
+            return
+
+        self.combat_log.append(f"  Trap! {hero.name} triggers a trap.")
+        resolve_trap_event(
+            hero=hero,
+            dungeon=self.dungeon,
+            log=self.combat_log,
+            start_wandering_combat=lambda trigger_tile: self._start_combat_random(
+                roll_lair_encounter(), trigger_tile=trigger_tile
+            ),
+            source="room_or_passage",
+        )
+
+    def _resolve_escape_counter(self):
+        """Resolve an escape dungeon counter."""
+        if self.dungeon and self.dungeon.wandering_monsters:
+            escaped_marker = random.choice(list(self.dungeon.wandering_monsters))
+            self.dungeon.wandering_monsters.remove(escaped_marker)
+            self.combat_log.append(f"  Something slips away in the dark near {escaped_marker}.")
+            return
+
+        self.combat_log.append("  Escape counter drawn, but there is nothing currently marked to escape.")
     
     def _run_combat_gm_phase(self):
         """Run GM phase during combat."""
@@ -286,10 +449,8 @@ class GameState:
             self._end_combat()
         
         # Check for dead heroes
-        for hero in self.party:
-            if hero.is_ko and not hero.is_dead:
-                hero.current_wounds = 1
-                hero.is_ko = False
+        if not any(not hero.is_dead and not hero.is_ko for hero in self.party):
+            self._game_over()
     
     def _start_combat_with_positions(self, monster_data: List[Tuple[Tuple[int, int], str]]):
         """Start combat with monsters placed according to WHQ rules in the room."""
@@ -307,10 +468,9 @@ class GameState:
         first_monster_pos = monster_data[0][0] if monster_data else None
         room_tiles = []
         if first_monster_pos:
-            for room in self.dungeon.rooms:
-                if first_monster_pos in room:
-                    room_tiles = list(room)
-                    break
+            room = self.dungeon.find_room_for_tile(*first_monster_pos)
+            if room is not None:
+                room_tiles = list(self.dungeon.get_room_interior_tiles(room))
         
         # Fallback: use monster positions if room not found
         if not room_tiles:
@@ -324,6 +484,7 @@ class GameState:
             monster_ids, valid_tiles, self.dungeon, self.party,
             self.monster_library, self.combat_log
         )
+        self._play_held_combat_counters()
         
         # Surprise roll
         has_elf = any(h.race == "Elf" for h in self.party)
@@ -368,8 +529,14 @@ class GameState:
         existing_ids = {m.instance_id for m in self.monsters}
         new_monsters = [m for m in monsters if m.instance_id not in existing_ids]
         self.monsters.extend(new_monsters)
-        
-        self.combat_log.append(f"Combat started with {len(new_monsters)} monsters!")
+        encountered_monsters = [m for m in monsters if not m.is_dead]
+        monster_summary = ", ".join(f"{m.name}@({m.x},{m.y})" for m in encountered_monsters[:8])
+        if len(encountered_monsters) > 8:
+            monster_summary += ", ..."
+        self.combat_log.append(
+            f"Combat started with {len(encountered_monsters)} visible monsters: {monster_summary}"
+        )
+        self._play_held_combat_counters()
         
         # Surprise roll
         has_elf = any(h.race == "Elf" for h in self.party)
@@ -424,6 +591,7 @@ class GameState:
             self.monster_library, self.combat_log
         )
         self.combat_log.append(f"  Placed {len(self.monsters)} monsters: {[(m.name, m.x, m.y) for m in self.monsters]}")
+        self._play_held_combat_counters()
         
         # Surprise roll
         has_elf = any(h.race == "Elf" for h in self.party)
@@ -454,6 +622,74 @@ class GameState:
             self.hero_phase_active = True
         
         self.save_game()
+
+    def _get_reinforcement_tiles(self, trigger_tile: Optional[Tuple[int, int]] = None) -> List[Tuple[int, int]]:
+        """Find valid tiles for reinforcement placement without replacing existing monsters."""
+        occupied = {
+            (monster.x, monster.y)
+            for monster in self.monsters
+            if not monster.is_dead
+        }
+        occupied.update(
+            (hero.x, hero.y)
+            for hero in self.party
+            if not hero.is_dead and not hero.is_ko
+        )
+
+        valid_tiles: List[Tuple[int, int]] = []
+        if trigger_tile:
+            for dx, dy in [
+                (0, 0), (0, 1), (0, -1), (1, 0), (-1, 0),
+                (0, 2), (0, -2), (2, 0), (-2, 0), (1, 1),
+                (1, -1), (-1, 1), (-1, -1)
+            ]:
+                tx, ty = trigger_tile[0] + dx, trigger_tile[1] + dy
+                if self.dungeon.is_walkable(tx, ty) and (tx, ty) not in occupied:
+                    valid_tiles.append((tx, ty))
+        else:
+            explored = list(self.dungeon.explored)
+            valid_tiles = [
+                pos for pos in explored
+                if self.dungeon.is_walkable(pos[0], pos[1]) and pos not in occupied
+            ]
+        return valid_tiles
+
+    def _spawn_reinforcements(
+        self,
+        monster_ids: List[str],
+        trigger_tile: Optional[Tuple[int, int]] = None,
+        reason: str = "Reinforcements",
+    ) -> List[Monster]:
+        """Add monsters to an existing combat without replacing current monsters."""
+        valid_tiles = self._get_reinforcement_tiles(trigger_tile)
+        if not valid_tiles:
+            self.combat_log.append(f"  {reason}: no valid reinforcement positions.")
+            return []
+
+        new_monsters = place_monsters_whq_rules(
+            monster_ids, valid_tiles, self.dungeon, self.party,
+            self.monster_library, self.combat_log
+        )
+        self.monsters.extend(new_monsters)
+        self.combat_log.append(
+            f"  {reason}: placed {len(new_monsters)} monster(s): "
+            f"{[(m.name, m.x, m.y) for m in new_monsters]}"
+        )
+        return new_monsters
+
+    def _play_held_combat_counters(self):
+        """Play any counters that are only legal at the start of combat."""
+        if self.current_phase != "COMBAT" or not self.held_dungeon_counters:
+            return
+
+        remaining_counters: List[str] = []
+        for counter in self.held_dungeon_counters:
+            if counter == "ambush":
+                self.combat_log.append("Held ambush counter played as combat begins.")
+                self._resolve_ambush_counter()
+            else:
+                remaining_counters.append(counter)
+        self.held_dungeon_counters = remaining_counters
     
     def _get_spawn_positions(self, count: int) -> List[tuple]:
         """Get positions to spawn monsters."""
@@ -505,6 +741,11 @@ class GameState:
         self.mode = "DUNGEON"
         self.combat_log.append("Combat ended. Monsters defeated!")
         self.monsters = []
+        for hero in self.party:
+            if hero.is_ko and not hero.is_dead:
+                hero.current_wounds = 1
+                hero.is_ko = False
+                self.combat_log.append(f"{hero.name} regains consciousness with 1 wound.")
         # Reset for exploration phase
         self.hero_movement_remaining = {h.id: h.speed for h in self.party}
         self.hero_has_attacked.clear()
@@ -523,13 +764,17 @@ class GameState:
         if nearby_monsters:
             self.combat_log.append(f"  Found {len(nearby_monsters)} monsters nearby!")
             self._start_combat_with_monsters(nearby_monsters)
+
+        elif self._enter_combat_if_monsters_visible():
+            self.save_game()
+            return True
         
         # Check for wandering monsters on door open
         elif random.randint(1, 12) <= 2:
             self.combat_log.append("Wandering monsters appear!")
             monster_ids = roll_lair_encounter()
             self._start_combat_random(monster_ids)
-        
+
         self.save_game()
         return True
     
@@ -562,10 +807,18 @@ class GameState:
     
     def save_game(self):
         """Save current game state."""
+        party_data = []
+        for hero in self.party:
+            hero_data = hero.to_dict()
+            hero_data["x"] = hero.x
+            hero_data["y"] = hero.y
+            party_data.append(hero_data)
+
         data = {
             "mode": self.mode,
             "dungeon": self.dungeon.to_dict() if self.dungeon else None,
             "party_ids": [h.id for h in self.party],
+            "party": party_data,
             "monsters": [
                 {
                     "id": m.id,
@@ -584,7 +837,9 @@ class GameState:
             "turn_count": self.turn_count,
             "combat_log": self.combat_log[-50:],  # Last 50 messages
             "experience_gained": self.experience_gained,
-            "gold_found": self.gold_found
+            "gold_found": self.gold_found,
+            "dungeon_counter_pool": self.dungeon_counter_pool,
+            "held_dungeon_counters": self.held_dungeon_counters,
         }
         
         self.SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -606,12 +861,20 @@ class GameState:
                 self.dungeon = Dungeon.from_dict(data["dungeon"])
             
             # Restore party
-            party_ids = data.get("party_ids", [])
             self.party = []
-            for hero_id in party_ids:
-                hero = self.hero_manager.get_hero(hero_id)
-                if hero:
+            party_data = data.get("party", [])
+            if party_data:
+                for hero_data in party_data:
+                    hero = Hero.from_dict(hero_data)
+                    hero.x = hero_data.get("x", 0)
+                    hero.y = hero_data.get("y", 0)
                     self.party.append(hero)
+            else:
+                party_ids = data.get("party_ids", [])
+                for hero_id in party_ids:
+                    hero = self.hero_manager.get_hero(hero_id)
+                    if hero:
+                        self.party.append(hero)
             
             # Restore monsters
             self.monsters = []
@@ -633,6 +896,8 @@ class GameState:
             self.combat_log = data.get("combat_log", [])
             self.experience_gained = data.get("experience_gained", 0)
             self.gold_found = data.get("gold_found", 0)
+            self.dungeon_counter_pool = data.get("dungeon_counter_pool", create_dungeon_counter_pool())
+            self.held_dungeon_counters = data.get("held_dungeon_counters", [])
             
             return True
         except Exception as e:

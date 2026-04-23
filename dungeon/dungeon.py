@@ -24,6 +24,7 @@ class Dungeon:
         self.wandering_monsters: Set[Tuple[int, int]] = set()
         self.debug_log = debug_log
         self.treasure: Dict[Tuple[int, int], bool] = {}
+        self.trap_markers: Dict[Tuple[int, int], dict] = {}
         self.hero_start = (0, 0)
         self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
         self.rooms: List[dict] = []
@@ -136,18 +137,54 @@ class Dungeon:
         """Check if tile blocks movement."""
         tile = self.get_tile(x, y)
         return tile in (TileType.WALL, TileType.UNEXPLORED, TileType.DOOR_CLOSED,
-                       TileType.PIT_TRAP, TileType.TREASURE_CLOSED)
+                       TileType.PIT_TRAP, TileType.TREASURE_CLOSED, TileType.STATUE)
+
+    @staticmethod
+    def _serialize_pos(pos: Tuple[int, int]) -> str:
+        """Convert a grid position to a stable string key."""
+        return f"{pos[0]},{pos[1]}"
+
+    @staticmethod
+    def _deserialize_pos(pos_str: str) -> Tuple[int, int]:
+        """Convert a serialized grid key back to a tuple."""
+        x, y = map(int, pos_str.split(","))
+        return x, y
+
+    def get_room_interior_tiles(self, room: dict) -> Set[Tuple[int, int]]:
+        """Return the walkable interior tiles for a room."""
+        return set(room.get("interior_tiles", set()))
+
+    def get_room_tiles(self, room: dict) -> Set[Tuple[int, int]]:
+        """Return all known tiles that belong to a room, including its walls."""
+        start_x = room.get("start_x")
+        start_y = room.get("start_y")
+        width = room.get("width")
+        height = room.get("height")
+        if None not in (start_x, start_y, width, height):
+            return {
+                (start_x + dx, start_y + dy)
+                for dx in range(width)
+                for dy in range(height)
+            }
+        return self.get_room_interior_tiles(room)
+
+    def find_room_for_tile(self, x: int, y: int) -> Optional[dict]:
+        """Find the room whose interior contains the tile."""
+        pos = (x, y)
+        for room in self.rooms:
+            if pos in self.get_room_interior_tiles(room):
+                return room
+        return None
     
     def _explore_from(self, x: int, y: int):
         """Reveal tiles using line-of-sight. For 2-wide passages, reveals both rows."""
         self.explored.add((x, y))
         
         # Check if hero is inside a room - reveal entire room
-        for room in self.rooms:
-            if (x, y) in room:
-                for room_tile in room:
-                    self.explored.add(room_tile)
-                return
+        room = self.find_room_for_tile(x, y)
+        if room is not None:
+            self.explored.update(self.get_room_tiles(room))
+            return
         
         # Not in a room - use line-of-sight
         # For 2-wide passages, we need to explore in both rows
@@ -310,7 +347,16 @@ class Dungeon:
 
         all_passage_tiles = []
         for direction in exits:
-            passage_tiles = generate_passage_from(self, origin_x, origin_y, direction)
+            # `generate_passage_from` expects the edge row/column of the 2x2 junction,
+            # not always the junction's top-left corner.
+            if direction == (0, 1):  # South: start from the bottom row
+                start_x, start_y = origin_x, origin_y + 1
+            elif direction == (1, 0):  # East: start from the right column
+                start_x, start_y = origin_x + 1, origin_y
+            else:  # North/West use the top/left edge of the 2x2 junction
+                start_x, start_y = origin_x, origin_y
+
+            passage_tiles = generate_passage_from(self, start_x, start_y, direction)
             all_passage_tiles.extend(passage_tiles)
 
         # Explicitly explore all generated passage tiles and their adjacent walls
@@ -525,8 +571,12 @@ class Dungeon:
             if roll <= 6:
                 # Generate passage starting one tile beyond the door (gen_x, gen_y)
                 # Don't pass door position or it will overwrite the door
-                generate_passage_from(self, gen_x, gen_y, direction)
-                self._explore_from(x, y)
+                passage_tiles = generate_passage_from(self, gen_x, gen_y, direction)
+                # Reveal from the generated passage itself, not just the doorway.
+                if passage_tiles:
+                    self._explore_from(passage_tiles[0][0], passage_tiles[0][1])
+                else:
+                    self._explore_from(gen_x, gen_y)
             else:
                 room_generated = _generate_room(self, x, y, direction, from_passage=False)
                 if room_generated is False:
@@ -604,27 +654,44 @@ class Dungeon:
         """Convert dungeon to dictionary for saving."""
         pending = {}
         for pos, junction_data in self.pending_junctions.items():
-            key = f"{pos[0]},{pos[1]}"
+            key = self._serialize_pos(pos)
             if isinstance(junction_data, list):
                 # Simple list format: [exit1, exit2, ...]
-                pending[key] = [f"{e[0]},{e[1]}" for e in junction_data]
+                pending[key] = [self._serialize_pos(e) for e in junction_data]
             elif isinstance(junction_data, tuple) and len(junction_data) >= 3:
                 # Backward compatibility: extract exits from tuple
                 exits = junction_data[2]
-                pending[key] = [f"{e[0]},{e[1]}" for e in exits]
+                pending[key] = [self._serialize_pos(e) for e in exits]
             else:
                 pending[key] = []
+
+        serialized_rooms = []
+        for room in self.rooms:
+            serialized_room = dict(room)
+            serialized_room["interior_tiles"] = [
+                self._serialize_pos(pos) for pos in sorted(self.get_room_interior_tiles(room))
+            ]
+            serialized_room["walls"] = [
+                self._serialize_pos(pos) for pos in sorted(room.get("walls", set()))
+            ]
+            serialized_room["searched_walls"] = [
+                f"{room_idx}:{x},{y}"
+                for room_idx, x, y in sorted(room.get("searched_walls", set()))
+            ]
+            serialized_rooms.append(serialized_room)
 
         return {
             "size": self.size,
             "level": self.level,
-            "grid": {f"{x},{y}": t.name for (x, y), t in self.grid.items()},
-            "explored": [f"{x},{y}" for x, y in self.explored],
-            "doors": {f"{x},{y}": v for (x, y), v in self.doors.items()},
-            "wandering_monsters": [f"{x},{y}" for x, y in self.wandering_monsters],
-            "treasure": {f"{x},{y}": v for (x, y), v in self.treasure.items()},
+            "grid": {self._serialize_pos(pos): t.name for pos, t in self.grid.items()},
+            "explored": [self._serialize_pos(pos) for pos in self.explored],
+            "doors": {self._serialize_pos(pos): v for pos, v in self.doors.items()},
+            "wandering_monsters": [self._serialize_pos(pos) for pos in self.wandering_monsters],
+            "treasure": {self._serialize_pos(pos): v for pos, v in self.treasure.items()},
+            "trap_markers": {self._serialize_pos(pos): data for pos, data in self.trap_markers.items()},
             "hero_start": self.hero_start,
-            "pending_junctions": pending
+            "pending_junctions": pending,
+            "rooms": serialized_rooms,
         }
     
     @classmethod
@@ -634,39 +701,54 @@ class Dungeon:
         
         dungeon.grid = {}
         for key, val in data.get("grid", {}).items():
-            x, y = map(int, key.split(","))
-            dungeon.grid[(x, y)] = TileType[val]
+            dungeon.grid[cls._deserialize_pos(key)] = TileType[val]
         
         dungeon.explored = set()
         for key in data.get("explored", []):
-            x, y = map(int, key.split(","))
-            dungeon.explored.add((x, y))
+            dungeon.explored.add(cls._deserialize_pos(key))
         
         dungeon.doors = {}
         for key, val in data.get("doors", {}).items():
-            x, y = map(int, key.split(","))
-            dungeon.doors[(x, y)] = val
+            dungeon.doors[cls._deserialize_pos(key)] = val
         
         dungeon.wandering_monsters = set()
         for pos_str in data.get("wandering_monsters", []):
-            x, y = map(int, pos_str.split(","))
-            dungeon.wandering_monsters.add((x, y))
+            dungeon.wandering_monsters.add(cls._deserialize_pos(pos_str))
         
         dungeon.treasure = {}
         for key, val in data.get("treasure", {}).items():
-            x, y = map(int, key.split(","))
-            dungeon.treasure[(x, y)] = val
+            dungeon.treasure[cls._deserialize_pos(key)] = val
+
+        dungeon.trap_markers = {}
+        for key, val in data.get("trap_markers", {}).items():
+            dungeon.trap_markers[cls._deserialize_pos(key)] = val
         
         dungeon.pending_junctions = {}
         for key, junction_data in data.get("pending_junctions", {}).items():
-            x, y = map(int, key.split(","))
+            pos = cls._deserialize_pos(key)
             if isinstance(junction_data, dict):
                 # Older dict format with exits array (backward compatibility)
-                exits = [tuple(map(int, e.split(","))) for e in junction_data.get("exits", [])]
-                dungeon.pending_junctions[(x, y)] = exits
+                exits = [cls._deserialize_pos(e) for e in junction_data.get("exits", [])]
+                dungeon.pending_junctions[pos] = exits
             elif isinstance(junction_data, list):
                 # Simple list format: ["dx,dy", ...]
-                dungeon.pending_junctions[(x, y)] = [tuple(map(int, d.split(","))) for d in junction_data]
+                dungeon.pending_junctions[pos] = [cls._deserialize_pos(d) for d in junction_data]
+
+        dungeon.rooms = []
+        for room_data in data.get("rooms", []):
+            room = dict(room_data)
+            room["interior_tiles"] = {
+                cls._deserialize_pos(pos_str) for pos_str in room_data.get("interior_tiles", [])
+            }
+            room["walls"] = {
+                cls._deserialize_pos(pos_str) for pos_str in room_data.get("walls", [])
+            }
+            room["searched_walls"] = set()
+            for wall_key in room_data.get("searched_walls", []):
+                room_idx_str, pos_str = wall_key.split(":", 1)
+                wall_x, wall_y = cls._deserialize_pos(pos_str)
+                room["searched_walls"].add((int(room_idx_str), wall_x, wall_y))
+            dungeon.rooms.append(room)
 
         dungeon.hero_start = tuple(data.get("hero_start", (0, 0)))
 
