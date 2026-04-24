@@ -11,13 +11,21 @@ from hero import Hero, HeroManager
 from monster import Monster, MonsterLibrary, roll_lair_encounter, roll_quest_room_encounter
 from dungeon import Dungeon
 from combat import (
-    resolve_melee_attack, resolve_monster_attack, apply_damage_to_hero,
+    resolve_melee_attack, resolve_monster_attack, resolve_hero_ranged_attack, apply_damage_to_hero,
+    resolve_spell_damage,
     do_surprise_roll, find_target_hero
 )
 from gm import run_gm_phase, check_dungeon_counter, find_path_bfs, create_dungeon_counter_pool
 from hazards import describe_hazard, get_hazard_anchor, resolve_hazard_reveal, resolve_magic_circle_entry
+from magic import (
+    format_spell_source_label,
+    get_spell_definition,
+    normalize_spell_name,
+    spell_component_count,
+)
 from monster_placement import place_monsters_whq_rules, surprise_move_monster
-from traps import get_trap_marker, resolve_pit_leap, resolve_trap_event
+from traps import attempt_disarm_trap, get_trap_marker, resolve_pit_leap, resolve_trap_event
+from dungeon.rooms import choose_room_chest_position
 
 
 class GameState:
@@ -39,6 +47,8 @@ class GameState:
         
         self.hero_movement_remaining: dict = {}  # hero_id -> remaining move points
         self.hero_has_attacked: set = set()       # track who has attacked this phase
+        self.hero_turn_start_positions: dict = {}  # hero_id -> start-of-phase (x, y)
+        self.entered_tiles: set = set()           # all tiles heroes have entered this expedition
         
         self.combat_log: List[str] = []
         self.experience_gained = 0
@@ -46,6 +56,7 @@ class GameState:
         self.dungeon_debug_log: List[str] = []  # For tracking dungeon generation
         self.dungeon_counter_pool: List[str] = []
         self.held_dungeon_counters: List[str] = []
+        self.section_spell_effects: List[dict] = []
         self.expedition_followers = {
             "maiden": False,
             "man_at_arms": False,
@@ -80,6 +91,7 @@ class GameState:
         self.gold_found = 0
         self.dungeon_counter_pool = create_dungeon_counter_pool()
         self.held_dungeon_counters = []
+        self.section_spell_effects = []
         self.expedition_followers = {
             "maiden": False,
             "man_at_arms": False,
@@ -92,6 +104,7 @@ class GameState:
             for h in self.party
         }
         self.hero_has_attacked.clear()
+        self._capture_hero_turn_start_positions()
         
         # Place heroes
         start_x, start_y = self.dungeon.hero_start
@@ -104,8 +117,65 @@ class GameState:
             hero.temp_fate_bonus = 0
             hero.free_spell_cast = 0
             hero.status_effects = []
+            hero.death_turn = None
+
+        self.entered_tiles = {(hero.x, hero.y) for hero in self.party}
+        self._capture_hero_turn_start_positions()
         
         self.save_game()
+
+    def _capture_hero_turn_start_positions(self):
+        """Remember where each hero started the current hero phase."""
+        self.hero_turn_start_positions = {
+            hero.id: (hero.x, hero.y)
+            for hero in self.party
+            if not hero.is_dead
+        }
+
+    def _draw_dungeon_counter(self, reason: str) -> Optional[str]:
+        """Draw and resolve a dungeon counter outside the GM-phase roll."""
+        if not self.dungeon_counter_pool:
+            self.dungeon_counter_pool.extend(create_dungeon_counter_pool())
+        counter = self.dungeon_counter_pool.pop()
+        self.combat_log.append(f"{reason} Dungeon Counter drawn: {counter}")
+        self._resolve_dungeon_counter(counter)
+        return counter
+
+    def _play_held_trap_counter(
+        self,
+        hero: Hero,
+        source: str,
+        trap_pos: Optional[Tuple[int, int]] = None,
+        previous_pos: Optional[Tuple[int, int]] = None,
+    ) -> bool:
+        """Play one held trap counter when its trigger condition is met."""
+        try:
+            index = self.held_dungeon_counters.index("trap")
+        except ValueError:
+            return False
+
+        del self.held_dungeon_counters[index]
+        source_label = "opening a chest" if source == "chest" else "stepping onto an unentered square"
+        self.combat_log.append(f"Held trap counter played on {hero.name} after {source_label}.")
+        resolve_trap_event(
+            hero=hero,
+            dungeon=self.dungeon,
+            log=self.combat_log,
+            start_wandering_combat=lambda trigger_tile: self._start_combat_random(
+                roll_lair_encounter(), trigger_tile=trigger_tile
+            ),
+            resolve_magic_spell=lambda trapped_hero, spell_name, trap_origin=None: self._resolve_magic_trap_spell(
+                trapped_hero, spell_name, trap_origin
+            ),
+            source="chest" if source == "chest" else "room_or_passage",
+            trap_pos=trap_pos,
+        )
+        if source == "movement" and trap_pos is not None and previous_pos is not None:
+            marker = self.dungeon.trap_markers.get(trap_pos)
+            if marker and marker.get("type") == "visible_trap_zone":
+                hero.x, hero.y = previous_pos
+                self.combat_log.append(f"{hero.name} pulls back before entering the armed trap area.")
+        return True
 
     def roll_wandering_monsters(self) -> List[str]:
         """Roll a wandering-monster group for the current expedition."""
@@ -171,6 +241,10 @@ class GameState:
             return "This chest is not linked to a room."
 
         messages: List[str] = []
+        self._play_held_trap_counter(hero, source="chest", trap_pos=(x, y))
+        chest_marker = self.dungeon.trap_markers.get((x, y))
+        if chest_marker and chest_marker.get("type") == "visible_trap_zone":
+            return "A spotted trap blocks the chest. It must be disarmed before the chest can be opened."
         if room.get("chest_trapped") and not room.get("chest_trap_resolved"):
             room["chest_trap_resolved"] = True
             resolve_trap_event(
@@ -178,9 +252,13 @@ class GameState:
                 self.dungeon,
                 self.combat_log,
                 lambda _: None,
+                resolve_magic_spell=lambda trapped_hero, spell_name, trap_origin=None: self._resolve_magic_trap_spell(
+                    trapped_hero, spell_name, trap_origin
+                ),
                 source="chest",
                 can_spot=False,
                 can_disarm=False,
+                trap_pos=(x, y),
             )
             messages.append("The chest is trapped!")
 
@@ -296,10 +374,19 @@ class GameState:
         remaining = self.hero_movement_remaining.get(hero.id, self._get_movement_allowance_for_phase(hero))
 
         # Move
+        previous_pos = (hero.x, hero.y)
         hero.x, hero.y = x, y
+        first_entry = (x, y) not in self.entered_tiles
+        self.entered_tiles.add((x, y))
         
         # Deduct movement points
         self.hero_movement_remaining[hero.id] = remaining - dist
+
+        if self.current_phase == "EXPLORATION" and first_entry:
+            self._play_held_trap_counter(hero, source="movement", trap_pos=(x, y), previous_pos=previous_pos)
+            if hero.is_dead or hero.is_ko:
+                self.save_game()
+                return True
         
         # Check for junctions (this will explore new passages if it's a pending junction)
         log_count_before = len(self.dungeon_debug_log)
@@ -332,6 +419,29 @@ class GameState:
         occupied = self._get_occupied_tiles_for_hero(hero)
         return find_path_bfs(hero.x, hero.y, x, y, self.dungeon, occupied)
 
+    def get_path_movement_cost(self, path: Optional[List[Tuple[int, int]]]) -> int:
+        """Return the exploration/combat movement cost for a path."""
+        if not path or len(path) <= 1:
+            return 0
+        cost = 0
+        for step in path[1:]:
+            marker = self.dungeon.trap_markers.get(step)
+            if marker and marker.get("careful_movement_only"):
+                cost += 2
+            else:
+                cost += 1
+        return cost
+
+    def disarm_visible_trap(self, hero: Hero, x: int, y: int) -> str:
+        """Attempt to disarm a visible trap marker."""
+        if self.current_phase != "EXPLORATION":
+            return "Traps may only be disarmed during exploration."
+        if not self.dungeon.is_adjacent(hero.x, hero.y, x, y) and (hero.x, hero.y) != (x, y):
+            return "You must stand next to the trap to disarm it."
+        success = attempt_disarm_trap(hero, self.dungeon, self.combat_log, (x, y))
+        self.hero_movement_remaining[hero.id] = 0
+        return "Trap disarmed." if success else "Disarm attempt resolved."
+
     def can_move_hero_to(self, hero: Hero, x: int, y: int) -> Tuple[bool, str, int]:
         """Check whether a hero can legally move to a tile."""
         if hero.is_dead or hero.is_ko:
@@ -357,7 +467,7 @@ class GameState:
         if path is None:
             return False, f"Cannot move to ({x},{y}): path is blocked", 0
 
-        dist = max(0, len(path) - 1)
+        dist = self.get_path_movement_cost(path)
         if dist > remaining:
             return False, f"Too far! Distance {dist} > remaining movement {remaining}", dist
 
@@ -470,6 +580,17 @@ class GameState:
         self._start_combat_with_monsters(visible_monsters)
         return True
 
+    def ensure_phase_consistency(self) -> bool:
+        """Keep phase state aligned with visible monsters and surviving combatants."""
+        if self.dungeon is None or self.mode in {"TAVERN", "GAME_OVER"}:
+            return False
+        if self.current_phase == "EXPLORATION":
+            return self._enter_combat_if_monsters_visible()
+        if self.current_phase == "COMBAT" and not any(not monster.is_dead for monster in self.monsters):
+            self._end_combat()
+            return True
+        return False
+
     def hero_attack(self, hero: Hero, monster: Monster) -> bool:
         """Hero attacks a monster."""
         if hero.is_dead or hero.is_ko or monster.is_dead:
@@ -483,28 +604,754 @@ class GameState:
         if hero.id in self.hero_has_attacked:
             self.combat_log.append(f"{hero.name} has already attacked this phase!")
             return False
-        
-        # Must be adjacent
-        if not self.dungeon.is_adjacent(hero.x, hero.y, monster.x, monster.y):
-            return False
-        
-        # Resolve attack
-        hit, damage, result = resolve_melee_attack(hero, monster, self.combat_log)
-        
-        # Mark as having attacked this phase
+
+        if self._hero_can_make_melee_attack(hero, monster):
+            return self._hero_melee_attack(hero, monster)
+        return self._hero_ranged_attack(hero, monster)
+
+    def _hero_melee_attack(self, hero: Hero, monster: Monster) -> bool:
+        """Resolve a melee attack and update combat state."""
+        resolve_melee_attack(hero, monster, self.combat_log)
         self.hero_has_attacked.add(hero.id)
-        
-        if monster.is_dead:
-            self.experience_gained += monster.pv
-            self.monsters = [m for m in self.monsters if not m.is_dead]
-            self._refresh_special_monster_states()
-            
-            # Check if combat ends
-            if not any(not m.is_dead for m in self.monsters):
-                self._end_combat()
-        
+        self._handle_monster_defeat(monster)
         self.save_game()
         return True
+
+    def _hero_ranged_attack(self, hero: Hero, monster: Monster) -> bool:
+        """Resolve a ranged attack and update combat state."""
+        can_attack, reason = self.can_hero_make_ranged_attack(hero, monster)
+        if not can_attack:
+            if reason:
+                self.combat_log.append(reason)
+            return False
+
+        los_state = self._get_ranged_los_state((hero.x, hero.y), (monster.x, monster.y), friendly_is_heroes=True)
+        fumble_target = self._get_nearby_ranged_fumble_target(hero)
+        resolve_hero_ranged_attack(
+            hero,
+            monster,
+            self.combat_log,
+            partial_obscured=(los_state == "partial"),
+            fumble_target=fumble_target,
+        )
+        hero.mark_ranged_weapon_fired()
+        self.hero_has_attacked.add(hero.id)
+        self._handle_monster_defeat(monster)
+        if fumble_target is not None and fumble_target.is_dead:
+            self.combat_log.append(f"{fumble_target.name} is downed by friendly fire.")
+        self.save_game()
+        return True
+
+    def _get_ranged_los_state(
+        self,
+        attacker_pos: Tuple[int, int],
+        target_pos: Tuple[int, int],
+        *,
+        friendly_is_heroes: bool,
+    ) -> str:
+        """Return `clear`, `partial`, or `blocked` for a ranged line of sight."""
+        if friendly_is_heroes:
+            friendly_positions = {
+                (hero.x, hero.y)
+                for hero in self.party
+                if not hero.is_dead and (hero.x, hero.y) != attacker_pos and (hero.x, hero.y) != target_pos
+            }
+            hostile_positions = {
+                (monster.x, monster.y)
+                for monster in self.monsters
+                if not monster.is_dead and (monster.x, monster.y) != attacker_pos and (monster.x, monster.y) != target_pos
+            }
+        else:
+            friendly_positions = {
+                (monster.x, monster.y)
+                for monster in self.monsters
+                if not monster.is_dead and (monster.x, monster.y) != attacker_pos and (monster.x, monster.y) != target_pos
+            }
+            hostile_positions = {
+                (hero.x, hero.y)
+                for hero in self.party
+                if not hero.is_dead and not hero.is_ko and (hero.x, hero.y) != attacker_pos and (hero.x, hero.y) != target_pos
+            }
+
+        adjacent_friendly = {
+            pos for pos in friendly_positions
+            if abs(pos[0] - attacker_pos[0]) + abs(pos[1] - attacker_pos[1]) == 1
+        }
+        return self.dungeon.get_los_state(
+            attacker_pos[0],
+            attacker_pos[1],
+            target_pos[0],
+            target_pos[1],
+            model_blockers=friendly_positions | hostile_positions,
+            adjacent_friendly_blockers=adjacent_friendly,
+        )
+
+    def _get_nearby_ranged_fumble_target(self, attacker: Hero) -> Optional[Hero]:
+        """Pick a nearby ally for a ranged fumble, if any."""
+        candidates = [
+            hero for hero in self.party
+            if hero.id != attacker.id
+            and not hero.is_dead
+            and abs(hero.x - attacker.x) + abs(hero.y - attacker.y) <= 1
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda hero: (abs(hero.x - attacker.x) + abs(hero.y - attacker.y), hero.name))
+
+    def can_hero_make_ranged_attack(self, hero: Hero, monster: Monster) -> Tuple[bool, str]:
+        """Check whether a hero can make a ranged attack against a monster."""
+        if not hero.has_ranged_weapon():
+            return False, f"{hero.name} has no ranged weapon equipped."
+        weapon = hero.get_equipped_ranged_weapon() or {}
+        weapon_name = str(weapon.get("name", "ranged weapon"))
+        if hero.get_effective_strength() < hero.get_ranged_min_strength():
+            return False, f"{hero.name} is not strong enough to use {weapon_name}."
+        if not hero.is_ranged_weapon_loaded():
+            return False, f"{weapon_name} is unloaded. Spend a turn without moving or attacking to reload it."
+        los_state = self._get_ranged_los_state((hero.x, hero.y), (monster.x, monster.y), friendly_is_heroes=True)
+        if los_state == "blocked":
+            return False, f"{hero.name} has no line of sight to {monster.name}."
+        if self.dungeon.is_adjacent(hero.x, hero.y, monster.x, monster.y):
+            return False, f"{hero.name} must use melee against an adjacent monster."
+        if self._hero_is_adjacent_to_any_monster(hero):
+            return False, f"{hero.name} is engaged in melee and cannot fire."
+        if self._monster_is_in_any_enemy_death_zone(monster):
+            return False, f"{monster.name} is in melee and cannot be targeted by ranged fire."
+
+        range_distance = abs(hero.x - monster.x) + abs(hero.y - monster.y)
+        if los_state == "partial":
+            range_distance += 4
+        if range_distance > hero.get_ranged_max_range():
+            return False, f"{monster.name} is out of range for {weapon_name}."
+
+        allowance = self._get_movement_allowance_for_phase(hero)
+        remaining = self.hero_movement_remaining.get(hero.id, allowance)
+        if not hero.can_move_and_fire_ranged_weapon() and remaining < allowance:
+            return False, f"{hero.name} must stand still to fire {weapon_name}."
+        return True, ""
+
+    def get_available_spell_options(self, hero: Hero) -> List[dict]:
+        """Return spellbook and magic-item casts available to the hero."""
+        if hero.is_dead or hero.is_ko or hero.is_under_gm_control():
+            return []
+
+        options: List[dict] = []
+        seen: set[tuple] = set()
+
+        if hero.can_cast_spells():
+            for spell_name in hero.known_spells:
+                definition = get_spell_definition(spell_name)
+                if definition is None:
+                    continue
+                key = ("spellbook", normalize_spell_name(spell_name), None, None)
+                if key in seen:
+                    continue
+                seen.add(key)
+                options.append({
+                    "label": format_spell_source_label(definition["name"], "spellbook"),
+                    "spell_name": definition["name"],
+                    "source_kind": "spellbook",
+                    "item_index": None,
+                    "scroll_spell_index": None,
+                    "target_mode": definition.get("target_mode", "none"),
+                })
+
+        for item_index, item in enumerate(hero.equipment):
+            item_type = item.get("type")
+            if item_type == "wand" and int(item.get("charges", 0)) > 0:
+                spell_name = str(item.get("spell", "")).strip()
+                definition = get_spell_definition(spell_name)
+                if definition is None:
+                    continue
+                key = ("wand", normalize_spell_name(spell_name), item_index, None)
+                if key in seen:
+                    continue
+                seen.add(key)
+                options.append({
+                    "label": format_spell_source_label(definition["name"], "wand", item),
+                    "spell_name": definition["name"],
+                    "source_kind": "wand",
+                    "item_index": item_index,
+                    "scroll_spell_index": None,
+                    "target_mode": definition.get("target_mode", "none"),
+                })
+            elif item_type == "scroll":
+                for spell_index, spell_name in enumerate(list(item.get("spells", []))):
+                    definition = get_spell_definition(str(spell_name))
+                    if definition is None:
+                        continue
+                    key = ("scroll", normalize_spell_name(definition["name"]), item_index, spell_index)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    options.append({
+                        "label": format_spell_source_label(definition["name"], "scroll", item),
+                        "spell_name": definition["name"],
+                        "source_kind": "scroll",
+                        "item_index": item_index,
+                        "scroll_spell_index": spell_index,
+                        "target_mode": definition.get("target_mode", "none"),
+                    })
+
+        return options
+
+    def can_hero_cast_spell(
+        self,
+        hero: Hero,
+        spell_name: str,
+        source_kind: str = "spellbook",
+        item_index: Optional[int] = None,
+        scroll_spell_index: Optional[int] = None,
+    ) -> Tuple[bool, str]:
+        """Check whether a hero can currently cast a specific spell."""
+        if hero.is_dead or hero.is_ko:
+            return False, f"{hero.name} cannot cast while dead or KO."
+        if hero.is_under_gm_control():
+            return False, f"{hero.name} is under GM control."
+        if hero.id in self.hero_has_attacked:
+            return False, f"{hero.name} has already acted this turn."
+
+        definition = get_spell_definition(spell_name)
+        if definition is None:
+            return False, f"{spell_name} is not implemented."
+
+        if source_kind == "spellbook":
+            if not hero.is_wizard():
+                return False, f"{hero.name} is not a Wizard."
+            if not hero.can_cast_spells():
+                return False, f"{hero.name} cannot cast while carrying forbidden weapons or armour."
+            if not hero.knows_spell(spell_name):
+                return False, f"{hero.name} does not know {spell_name}."
+            if hero.free_spell_cast <= 0 and not hero.has_spell_components(spell_name):
+                return False, f"{hero.name} has no component left for {spell_name}."
+        else:
+            if item_index is None or item_index < 0 or item_index >= len(hero.equipment):
+                return False, "That magical item is no longer available."
+            item = hero.equipment[item_index]
+            if item.get("wizard_only") and not hero.is_wizard():
+                return False, f"{hero.name} cannot use {item.get('name', 'that item')}."
+            if hero.is_wizard() and not hero.can_cast_spells():
+                return False, f"{hero.name} cannot use magic while carrying forbidden weapons or armour."
+            if source_kind == "wand":
+                if int(item.get("charges", 0)) <= 0:
+                    return False, f"{item.get('name', 'The wand')} has no charges left."
+            elif source_kind == "scroll":
+                spells = list(item.get("spells", []))
+                if scroll_spell_index is None or scroll_spell_index < 0 or scroll_spell_index >= len(spells):
+                    return False, "That scroll spell has already been used."
+
+        required_components = spell_component_count(spell_name)
+        allowance = self._get_movement_allowance_for_phase(hero)
+        remaining = self.hero_movement_remaining.get(hero.id, allowance)
+        if required_components >= 2 and remaining < allowance:
+            return False, f"{hero.name} must stand still to cast {spell_name}."
+
+        return True, ""
+
+    def cast_spell(
+        self,
+        hero: Hero,
+        spell_name: str,
+        target: Optional[Tuple[int, int]] = None,
+        source_kind: str = "spellbook",
+        item_index: Optional[int] = None,
+        scroll_spell_index: Optional[int] = None,
+    ) -> Tuple[bool, str]:
+        """Resolve a spell cast from a spellbook, wand, or scroll."""
+        can_cast, message = self.can_hero_cast_spell(hero, spell_name, source_kind, item_index, scroll_spell_index)
+        if not can_cast:
+            if message:
+                self.combat_log.append(message)
+            return False, message
+
+        definition = get_spell_definition(spell_name)
+        if definition is None:
+            return False, f"{spell_name} is not implemented."
+
+        success, result = self._resolve_spell_effect(hero, definition, target)
+        if not success:
+            if result:
+                self.combat_log.append(result)
+            return False, result
+
+        self._consume_spell_source(hero, definition["name"], source_kind, item_index, scroll_spell_index)
+        if spell_component_count(definition["name"]) >= 2:
+            self.hero_movement_remaining[hero.id] = 0
+        self.hero_has_attacked.add(hero.id)
+        self._refresh_hero_death_turns()
+        self.hero_manager.update_hero(hero)
+        self.save_game()
+        self.combat_log.append(result)
+        return True, result
+
+    def _consume_spell_source(
+        self,
+        hero: Hero,
+        spell_name: str,
+        source_kind: str,
+        item_index: Optional[int],
+        scroll_spell_index: Optional[int],
+    ):
+        """Spend the resource used to cast a spell."""
+        if source_kind == "spellbook":
+            if hero.free_spell_cast > 0:
+                hero.free_spell_cast -= 1
+            else:
+                hero.spend_spell_components(spell_name)
+            return
+
+        if item_index is None or item_index < 0 or item_index >= len(hero.equipment):
+            return
+        item = hero.equipment[item_index]
+        if source_kind == "wand":
+            item["charges"] = max(0, int(item.get("charges", 0)) - 1)
+            return
+        if source_kind == "scroll":
+            spells = list(item.get("spells", []))
+            if scroll_spell_index is None or scroll_spell_index < 0 or scroll_spell_index >= len(spells):
+                return
+            del spells[scroll_spell_index]
+            item["spells"] = spells
+            if not spells:
+                del hero.equipment[item_index]
+
+    def _get_hero_at(self, x: int, y: int) -> Optional[Hero]:
+        """Return the living or fallen hero occupying a tile."""
+        for hero in self.party:
+            if (hero.x, hero.y) == (x, y):
+                return hero
+        return None
+
+    def _get_monster_at(self, x: int, y: int) -> Optional[Monster]:
+        """Return a living monster occupying a tile."""
+        for monster in self.monsters:
+            if not monster.is_dead and (monster.x, monster.y) == (x, y):
+                return monster
+        return None
+
+    def _get_any_model_at(self, x: int, y: int):
+        """Return any model at a tile."""
+        hero = self._get_hero_at(x, y)
+        if hero is not None:
+            return hero
+        return self._get_monster_at(x, y)
+
+    def _hero_resists_spell(self, hero: Hero, spell_name: str, caster_name: str) -> bool:
+        """Resolve carried-item spell protection against a spell."""
+        for item in hero.equipment:
+            if not item.get("equipped"):
+                continue
+            protection = item.get("spell_protection")
+            if not isinstance(protection, dict):
+                continue
+            mode = protection.get("mode")
+            item_name = str(item.get("name", "magical protection"))
+            if mode == "threshold":
+                target = int(protection.get("target", 13))
+                roll = random.randint(1, 12)
+                if roll >= target:
+                    self.combat_log.append(
+                        f"{hero.name}'s {item_name} wards off {spell_name} from {caster_name} ({roll} vs {target}+)."
+                    )
+                    return True
+            elif mode == "intelligence":
+                roll = random.randint(1, 12)
+                if roll <= hero.intelligence:
+                    self.combat_log.append(
+                        f"{hero.name}'s {item_name} wards off {spell_name} from {caster_name} ({roll} vs Int {hero.intelligence})."
+                    )
+                    return True
+        return False
+
+    def _apply_choke_to_hero(self, hero: Hero, caster_ref: str, caster_name: str) -> bool:
+        """Apply the Skaven Choke effect to a hero."""
+        if self._hero_resists_spell(hero, "Choke", caster_name):
+            return False
+        hero.add_status_effect(
+            "choke",
+            turns=3,
+            exploration_move_cap=1,
+            combat_move_cap=1,
+            choke_caster_ref=caster_ref,
+            choke_caster_name=caster_name,
+        )
+        self.combat_log.append(
+            f"{caster_name} casts Choke on {hero.name}. {hero.name} may only stagger 1 square per turn for 3 turns."
+        )
+        return True
+
+    def _resolve_magic_trap_spell(
+        self,
+        hero: Hero,
+        spell_name: str,
+        trap_origin: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        """Resolve a magic-trap spell through the shared spell engine."""
+        definition = get_spell_definition(spell_name)
+        if definition is None:
+            self.combat_log.append(f"  Magic trap: {spell_name} is not implemented.")
+            return
+
+        norm = normalize_spell_name(spell_name)
+        origin = trap_origin if trap_origin is not None else (hero.x, hero.y)
+        label = f"Magic trap ({definition['name']})"
+        self.combat_log.append(f"  {label} goes off at {origin}.")
+
+        if norm in {"fireball", "flames of death", "inferno of doom"}:
+            damage_dice = int(definition.get("damage_dice", 5))
+            self._apply_spell_damage(self._get_fireball_area(origin[0], origin[1]), damage_dice, label)
+            return
+
+        if norm == "lightning bolt":
+            if self._hero_resists_spell(hero, definition["name"], "the magic trap"):
+                return
+            self._apply_spell_damage([(hero.x, hero.y)], int(definition.get("damage_dice", 6)), label)
+            return
+
+        if norm == "choke":
+            self._apply_choke_to_hero(hero, "trap", "the magic trap")
+            return
+
+        self.combat_log.append(f"  {label} has no trap resolver yet.")
+
+    def _monster_cast_spell(self, monster: Monster) -> bool:
+        """Let a monster resolve a spell instead of taking a normal action."""
+        if not monster.has_spellcasting():
+            return False
+
+        mode = str(monster.spellcasting.get("mode", "wizard")).lower()
+        if mode == "warpscroll":
+            if int(monster.spellcasting.get("charges", {}).get("Warpscroll", 0)) <= 0:
+                return False
+            if monster.spellcasting.get("charging_spell") == "Warpscroll":
+                roll = random.randint(1, 12)
+                monster.spellcasting["charging_spell"] = None
+                monster.spellcasting["charge_turns"] = 0
+                if roll > monster.intelligence:
+                    self.combat_log.append(
+                        f"{monster.name} fails the Warpscroll Intelligence test ({roll} vs Int {monster.intelligence})."
+                    )
+                    return True
+                monster.consume_spell_charge("Warpscroll")
+                self.combat_log.append(f"{monster.name} completes the Warpscroll and ages the whole party!")
+                for hero in self.party:
+                    if hero.is_dead:
+                        continue
+                    resist_roll = random.randint(1, 12)
+                    if resist_roll <= hero.intelligence:
+                        self.combat_log.append(
+                            f"  {hero.name} resists the Warpscroll ({resist_roll} vs Int {hero.intelligence})."
+                        )
+                        continue
+                    if hero.current_fate > 0:
+                        self.combat_log.append(
+                            f"  {hero.name} fails the Warpscroll test ({resist_roll}) and spends Fate to survive."
+                        )
+                        hero.spend_fate()
+                    else:
+                        hero.is_dead = True
+                        hero.is_ko = True
+                        hero.current_wounds = 0
+                        hero.death_turn = self.turn_count
+                        self.combat_log.append(f"  {hero.name} fails the Warpscroll test ({resist_roll}) and dies.")
+                return True
+
+            if any(
+                not hero.is_dead and not hero.is_ko and self.dungeon.is_adjacent(monster.x, monster.y, hero.x, hero.y)
+                for hero in self.party
+            ):
+                return False
+            monster.spellcasting["charging_spell"] = "Warpscroll"
+            monster.spellcasting["charge_turns"] = int(monster.spellcasting.get("charge_turns", 0)) + 1
+            self.combat_log.append(f"{monster.name} begins chanting from a Warpscroll.")
+            return True
+
+        available_spells = monster.get_available_spells()
+        if not available_spells:
+            return False
+
+        living_heroes = [hero for hero in self.party if not hero.is_dead]
+        visible_targets = [
+            hero for hero in living_heroes
+            if self.dungeon._has_los(monster.x, monster.y, hero.x, hero.y)
+            and self.dungeon.get_distance(monster.x, monster.y, hero.x, hero.y) <= 12
+        ]
+
+        if "Flaming Skull of Terror" in available_spells and not monster.has_status_effect("flaming_skull_of_terror"):
+            monster.consume_spell_charge("Flaming Skull of Terror")
+            monster.add_status_effect(
+                "flaming_skull_of_terror",
+                scope="next_exploration",
+                ws_delta=1,
+                toughness_delta=1,
+            )
+            self.combat_log.append(f"{monster.name} casts Flaming Skull of Terror on itself.")
+            return True
+
+        if "Fireball" in available_spells and visible_targets:
+            target_hero = min(
+                visible_targets,
+                key=lambda hero: self.dungeon.get_distance(monster.x, monster.y, hero.x, hero.y),
+            )
+            monster.consume_spell_charge("Fireball")
+            self.combat_log.append(f"{monster.name} casts Fireball at {target_hero.name}.")
+            self._apply_spell_damage(self._get_fireball_area(target_hero.x, target_hero.y), 5, f"{monster.name}'s Fireball")
+            return True
+
+        if "Choke" in available_spells and visible_targets:
+            target_hero = min(
+                visible_targets,
+                key=lambda hero: self.dungeon.get_distance(monster.x, monster.y, hero.x, hero.y),
+            )
+            monster.consume_spell_charge("Choke")
+            self._apply_choke_to_hero(target_hero, monster.instance_id, monster.name)
+            return True
+
+        return False
+
+    def _apply_spell_damage(self, positions: List[Tuple[int, int]], damage_dice: int, label: str):
+        """Apply spell damage to any models in the affected squares."""
+        hit_models = set()
+        for pos in positions:
+            model = self._get_any_model_at(pos[0], pos[1])
+            if model is None or model in hit_models:
+                continue
+            hit_models.add(model)
+            if isinstance(model, Hero):
+                damage, rolls = resolve_spell_damage(damage_dice, model.get_effective_toughness())
+                self.combat_log.append(f"  {label} hits {model.name}: {rolls} vs T{model.get_effective_toughness()} = {damage} wounds.")
+                if damage:
+                    apply_damage_to_hero(model, damage, self.combat_log)
+                    if model.is_dead and model.death_turn is None:
+                        model.death_turn = self.turn_count
+            else:
+                damage, rolls = resolve_spell_damage(damage_dice, model.toughness)
+                self.combat_log.append(f"  {label} hits {model.name}: {rolls} vs T{model.toughness} = {damage} wounds.")
+                if damage:
+                    model.take_damage(damage)
+                    self._handle_monster_defeat(model)
+
+    def _get_fireball_area(self, x: int, y: int) -> List[Tuple[int, int]]:
+        """Return the current square and the eight adjacent squares."""
+        return [(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
+
+    def _get_section_tiles(self, x: int, y: int) -> set[Tuple[int, int]]:
+        """Return the room or passage section containing a tile."""
+        room = self.dungeon.find_room_for_tile(x, y)
+        if room is not None:
+            return set(self.dungeon.get_room_interior_tiles(room))
+
+        if not self.dungeon.is_walkable(x, y):
+            return set()
+
+        section = set()
+        queue = [(x, y)]
+        while queue:
+            cx, cy = queue.pop()
+            if (cx, cy) in section:
+                continue
+            tile = self.dungeon.get_tile(cx, cy)
+            if tile not in (
+                self.dungeon.TileType.FLOOR,
+                self.dungeon.TileType.PASSAGE_END,
+                self.dungeon.TileType.DOOR_OPEN,
+                self.dungeon.TileType.STAIRS_DOWN,
+                self.dungeon.TileType.STAIRS_OUT,
+            ):
+                continue
+            if self.dungeon.find_room_for_tile(cx, cy) is not None and (cx, cy) != (x, y):
+                continue
+            section.add((cx, cy))
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                queue.append((cx + dx, cy + dy))
+        return section
+
+    def _is_other_model_in_death_zone(self, caster: Hero, exempt: Optional[Hero] = None) -> bool:
+        """Whether another model occupies the caster's death zone."""
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            model = self._get_any_model_at(caster.x + dx, caster.y + dy)
+            if model is None or model == exempt:
+                continue
+            return True
+        return False
+
+    def _resolve_spell_effect(self, hero: Hero, definition: dict, target: Optional[Tuple[int, int]]) -> Tuple[bool, str]:
+        """Apply the actual effect of a spell."""
+        spell_name = definition["name"]
+        norm = normalize_spell_name(spell_name)
+
+        if definition.get("target_mode") != "none" and target is None:
+            return False, f"{spell_name} needs a target."
+
+        if norm in {"dragon armour", "courage", "flames of the phoenix", "power of the phoenix"}:
+            target_hero = self._get_hero_at(target[0], target[1]) if target is not None else hero
+            if target_hero is None:
+                return False, f"{spell_name} must target a hero."
+            if definition.get("adjacent_only") and not (
+                (target_hero.x, target_hero.y) == (hero.x, hero.y)
+                or self.dungeon.is_adjacent(hero.x, hero.y, target_hero.x, target_hero.y)
+            ):
+                return False, f"{spell_name} must target a model in the wizard's death zone."
+
+            if norm == "dragon armour":
+                target_hero.add_status_effect("dragon_armour", scope="next_exploration", toughness_delta=1)
+                return True, f"{hero.name} casts Dragon Armour on {target_hero.name}."
+            if norm == "courage":
+                target_hero.add_status_effect("courage", scope="next_exploration", bravery_override=12)
+                return True, f"{hero.name} casts Courage on {target_hero.name}."
+            if norm == "flames of the phoenix":
+                if self._is_other_model_in_death_zone(hero, exempt=target_hero):
+                    return False, "Flames of the Phoenix cannot be cast while other models are in the wizard's death zone."
+                target_hero.restore_to_full()
+                return True, f"{hero.name} casts Flames of the Phoenix on {target_hero.name}, restoring them to full strength."
+            if target_hero.death_turn != self.turn_count - 1:
+                return False, "Power of the Phoenix may only be cast on a character killed in the previous turn."
+            roll = random.randint(1, 12)
+            if roll > hero.intelligence:
+                target_hero.is_dead = True
+                target_hero.is_ko = True
+                return True, f"{hero.name} fails the Intelligence test for Power of the Phoenix ({roll} vs Int {hero.intelligence})."
+            target_hero.restore_to_full()
+            return True, f"{hero.name} casts Power of the Phoenix on {target_hero.name} (roll {roll}), returning them to life at full strength."
+
+        if norm == "flaming hand of destruction":
+            hero.add_status_effect("flaming_hand_of_destruction", scope="next_exploration")
+            return True, f"{hero.name}'s hands blaze with magical fire."
+
+        if norm == "swift wind":
+            roll = random.randint(1, 12)
+            moved_characters = (roll + 1) // 2
+            hero.add_status_effect("swift_wind", turns=1, scope="hero_phase", exploration_move_cap=18, speed_delta=hero.get_effective_speed(self.current_phase.lower()))
+            self.hero_movement_remaining[hero.id] = max(self.hero_movement_remaining.get(hero.id, 0), hero.get_movement_allowance(self.current_phase.lower()))
+            return True, f"{hero.name} casts Swift Wind (roll {roll}), enough power for {moved_characters} characters. The current implementation empowers {hero.name} for this turn."
+
+        if norm in {"flames of death", "fireball", "inferno of doom"}:
+            if not self.dungeon._has_los(hero.x, hero.y, target[0], target[1]):
+                return False, f"{hero.name} has no line of sight for {spell_name}."
+            max_range = int(definition.get("max_range", 12))
+            if self.dungeon.get_distance(hero.x, hero.y, target[0], target[1]) > max_range:
+                return False, f"{spell_name} is out of range."
+            damage_dice = int(definition.get("damage_dice", 5))
+            if norm == "inferno of doom":
+                roll = random.randint(1, 12)
+                if roll > hero.intelligence:
+                    damage_dice = int(definition.get("damage_dice_on_failed_test", 5))
+                    self.combat_log.append(f"{hero.name} fails the Inferno of Doom Intelligence test ({roll} vs Int {hero.intelligence}).")
+                else:
+                    self.combat_log.append(f"{hero.name} passes the Inferno of Doom Intelligence test ({roll} vs Int {hero.intelligence}).")
+            area = self._get_fireball_area(target[0], target[1])
+            self._apply_spell_damage(area, damage_dice, spell_name)
+            return True, f"{hero.name} casts {spell_name} at {target}."
+
+        if norm == "still air":
+            if not self.dungeon._has_los(hero.x, hero.y, target[0], target[1]):
+                return False, "Still Air needs line of sight to the selected dungeon section."
+            section_tiles = self._get_section_tiles(target[0], target[1])
+            affected = 0
+            for monster in self.monsters:
+                if not monster.is_dead and (monster.x, monster.y) in section_tiles:
+                    monster.add_status_effect("still_air", turns=1, cannot_move=True, cannot_attack=True)
+                    affected += 1
+            return True, f"{hero.name} casts Still Air. {affected} monster(s) in that section are frozen for the turn."
+
+        if norm == "open window":
+            tile = self.dungeon.get_tile(target[0], target[1])
+            if tile != self.dungeon.TileType.DOOR_CLOSED:
+                return False, "Open Window currently targets a closed door."
+            log_count_before = len(self.dungeon_debug_log)
+            if not self.dungeon.open_door(target[0], target[1]):
+                return False, "The spell reveals only solid resistance beyond that doorway."
+            self.dungeon.grid[target] = self.dungeon.TileType.DOOR_CLOSED
+            if target in self.dungeon.doors:
+                self.dungeon.doors[target]["is_open"] = False
+            for msg in self.dungeon_debug_log[log_count_before:]:
+                self.combat_log.append(f"[DUNGEON] {msg}")
+            return True, f"{hero.name} casts Open Window beyond the door at {target}."
+
+        if norm == "the bright key":
+            tile = self.dungeon.get_tile(target[0], target[1])
+            if tile != self.dungeon.TileType.WALL:
+                return False, "The Bright Key must target a wall."
+            current_section = self._get_section_tiles(hero.x, hero.y)
+            if not any(self.dungeon.is_adjacent(target[0], target[1], sx, sy) for sx, sy in current_section):
+                return False, "That wall is not part of the wizard's current dungeon section."
+            rock_roll = random.randint(1, 12)
+            self.dungeon.grid[target] = self.dungeon.TileType.DOOR_CLOSED
+            self.dungeon.doors[target] = {"is_open": False, "from_room": self.dungeon.find_room_for_tile(hero.x, hero.y) is not None, "bright_key_roll": rock_roll}
+            self.dungeon.explored.add(target)
+            return True, f"{hero.name} casts The Bright Key, creating a door in the wall at {target}."
+
+        if norm == "flight":
+            target_model = self._get_any_model_at(target[0], target[1])
+            if target_model is None:
+                return False, "Flight must target a model."
+            if not self.dungeon._has_los(hero.x, hero.y, target_model.x, target_model.y):
+                return False, "Flight requires line of sight to the target."
+            dx = 1 if target_model.x > hero.x else -1 if target_model.x < hero.x else 0
+            dy = 1 if target_model.y > hero.y else -1 if target_model.y < hero.y else 0
+            max_steps = 18 if self.current_phase == "EXPLORATION" else max(1, getattr(target_model, "speed", 6) * 2)
+            moved = 0
+            while moved < max_steps:
+                nx, ny = target_model.x + dx, target_model.y + dy
+                if not self.dungeon.is_walkable(nx, ny):
+                    break
+                if self._get_any_model_at(nx, ny) is not None:
+                    break
+                target_model.x, target_model.y = nx, ny
+                moved += 1
+            return True, f"{hero.name} casts Flight on {target_model.name}, hurling them {moved} square(s)."
+
+        if norm in {"choke", "lightning bolt"}:
+            target_monster = self._get_monster_at(target[0], target[1])
+            if target_monster is None:
+                return False, f"{spell_name} currently targets a visible monster."
+            if not self.dungeon._has_los(hero.x, hero.y, target_monster.x, target_monster.y):
+                return False, f"{spell_name} requires line of sight."
+            if norm == "choke":
+                target_monster.add_status_effect("choke", turns=3, choke_caster_id=hero.id)
+                return True, f"{hero.name} casts Choke on {target_monster.name}."
+            self._apply_spell_damage([(target_monster.x, target_monster.y)], int(definition.get("damage_dice", 6)), spell_name)
+            return True, f"{hero.name} casts Lightning Bolt on {target_monster.name}."
+
+        if norm == "flaming skull of terror":
+            hero.add_status_effect("flaming_skull_of_terror", scope="next_exploration", ws_delta=1, toughness_delta=1)
+            return True, f"{hero.name} becomes a fearsome monster until the next exploration turn."
+
+        return False, f"{spell_name} is not implemented."
+
+    def _hero_is_adjacent_to_any_monster(self, hero: Hero) -> bool:
+        """Check whether a hero is engaged with any living monster."""
+        return any(
+            not monster.is_dead and self.dungeon.is_adjacent(hero.x, hero.y, monster.x, monster.y)
+            for monster in self.monsters
+        )
+
+    def _hero_can_make_melee_attack(self, hero: Hero, monster: Monster) -> bool:
+        """Check whether the monster is within melee reach."""
+        dx = abs(hero.x - monster.x)
+        dy = abs(hero.y - monster.y)
+        if hero.has_long_reach_weapon():
+            return max(dx, dy) == 1 and (dx != 0 or dy != 0)
+        return (dx + dy == 1)
+
+    def _monster_is_in_any_enemy_death_zone(self, monster: Monster) -> bool:
+        """Check whether a monster is in any hero melee death zone."""
+        return any(
+            not hero.is_dead and not hero.is_ko and self._hero_can_make_melee_attack(hero, monster)
+            for hero in self.party
+        )
+
+    def _handle_monster_defeat(self, monster: Monster):
+        """Apply shared post-attack cleanup for a defeated monster."""
+        if not monster.is_dead:
+            return
+
+        self.experience_gained += monster.pv
+        self.monsters = [current for current in self.monsters if not current.is_dead]
+        self._refresh_special_monster_states()
+
+        if not any(not current.is_dead for current in self.monsters):
+            self._end_combat()
     
     def end_hero_phase(self):
         """End hero phase and start GM phase."""
@@ -515,8 +1362,11 @@ class GameState:
             self._run_exploration_gm_phase()
         else:  # COMBAT
             self._run_combat_gm_phase()
-        
+
         self.hero_phase_active = True
+        if self.current_phase == "EXPLORATION":
+            self._clear_next_exploration_magic_effects()
+        self._reload_ranged_weapons()
         # Reset movement and attack tracking for next hero phase
         self.hero_movement_remaining = {
             h.id: self._get_movement_allowance_for_phase(h)
@@ -526,12 +1376,32 @@ class GameState:
         self.turn_count += 1
         self._advance_ko_timers()
         self._advance_status_effects()
+        self._advance_monster_status_effects()
+        self._capture_hero_turn_start_positions()
         
         # Check for dead party
         if all(h.is_dead for h in self.party):
             self._game_over()
         
         self.save_game()
+
+    def _reload_ranged_weapons(self):
+        """Reload crossbows for heroes who spent the whole turn reloading."""
+        phase_name = self.current_phase
+        for hero in self.party:
+            if hero.is_dead or hero.is_ko:
+                continue
+            if not hero.ranged_weapon_requires_reload():
+                continue
+            allowance = self._get_movement_allowance_for_phase(hero, phase_name)
+            remaining = self.hero_movement_remaining.get(hero.id, allowance)
+            if remaining != allowance:
+                continue
+            if hero.id in self.hero_has_attacked:
+                continue
+            weapon_name = hero.reload_ranged_weapon()
+            if weapon_name:
+                self.combat_log.append(f"{hero.name} reloads {weapon_name}.")
 
     def _close_temporary_traps(self):
         """Close any trap states that only stay open for the hero phase."""
@@ -561,9 +1431,70 @@ class GameState:
             "mild_poison": "can move again.",
         }
         for hero in self.party:
+            choke = hero.get_status_effect("choke")
+            choke_caster_dead = False
+            choke_caster_name = str(choke.get("choke_caster_name", "the caster")) if choke is not None else ""
+            if choke is not None:
+                caster_ref = choke.get("choke_caster_ref")
+                if caster_ref == "trap":
+                    choke_caster_dead = False
+                elif caster_ref is not None:
+                    caster = next((monster for monster in self.monsters if monster.instance_id == caster_ref), None)
+                    choke_caster_dead = caster is None or caster.is_dead
             for expired in hero.tick_status_effects():
+                if expired == "choke":
+                    if choke_caster_dead:
+                        self.combat_log.append(f"{hero.name} survives as Choke collapses with {choke_caster_name}.")
+                    elif hero.current_fate > 0:
+                        self.combat_log.append(f"{hero.name} suffocates as Choke runs its course and spends Fate to survive.")
+                        hero.spend_fate()
+                    else:
+                        hero.is_dead = True
+                        hero.is_ko = True
+                        hero.current_wounds = 0
+                        hero.death_turn = self.turn_count
+                        self.combat_log.append(f"{hero.name} suffocates as Choke runs its course.")
+                    continue
                 suffix = expiry_messages.get(expired, "is no longer affected.")
                 self.combat_log.append(f"{hero.name} {suffix}")
+
+    def _advance_monster_status_effects(self):
+        """Advance timed monster effects from spells."""
+        for monster in list(self.monsters):
+            caster_dead = False
+            choke = monster.get_status_effect("choke")
+            if choke is not None:
+                caster_id = choke.get("choke_caster_id")
+                caster = next((hero for hero in self.party if hero.id == caster_id), None)
+                caster_dead = caster is None or caster.is_dead
+            for expired in monster.tick_status_effects():
+                if expired == "choke":
+                    if caster_dead:
+                        self.combat_log.append(f"{monster.name} survives as the Choke spell collapses with its caster.")
+                    else:
+                        monster.is_dead = True
+                        self.combat_log.append(f"{monster.name} suffocates as Choke runs its course.")
+                        self._handle_monster_defeat(monster)
+                else:
+                    self.combat_log.append(f"{monster.name} is no longer affected by {expired}.")
+
+    def _clear_next_exploration_magic_effects(self):
+        """Clear effects that expire when play returns to exploration turns."""
+        for hero in self.party:
+            hero.clear_status_effects("next_exploration")
+        for monster in self.monsters:
+            monster.status_effects = [
+                effect for effect in monster.status_effects
+                if effect.get("scope") != "next_exploration"
+            ]
+
+    def _refresh_hero_death_turns(self):
+        """Backfill death-turn tracking for resurrection spells."""
+        for hero in self.party:
+            if hero.is_dead and hero.death_turn is None:
+                hero.death_turn = self.turn_count
+            elif not hero.is_dead:
+                hero.death_turn = None
     
     def _run_exploration_gm_phase(self):
         """Run GM phase during exploration."""
@@ -597,7 +1528,8 @@ class GameState:
         elif counter == "fate":
             self._resolve_fate_counter()
         elif counter == "trap":
-            self._resolve_trap_counter()
+            self.held_dungeon_counters.append(counter)
+            self.combat_log.append("  Trap counter held until a hero opens a chest or enters an unentered square.")
         elif counter == "escape":
             self._resolve_escape_counter()
         else:
@@ -684,6 +1616,9 @@ class GameState:
             start_wandering_combat=lambda trigger_tile: self._start_combat_random(
                 roll_lair_encounter(), trigger_tile=trigger_tile
             ),
+            resolve_magic_spell=lambda trapped_hero, spell_name, trap_origin=None: self._resolve_magic_trap_spell(
+                trapped_hero, spell_name, trap_origin
+            ),
             source="room_or_passage",
         )
 
@@ -702,8 +1637,13 @@ class GameState:
         self._refresh_special_monster_states()
         self._resolve_hazard_npc_rounds()
         self.monsters, self.combat_log = run_gm_phase(
-            self.monsters, self.party, self.dungeon, self.combat_log
+            self.monsters,
+            self.party,
+            self.dungeon,
+            self.combat_log,
+            monster_spell_action=self._monster_cast_spell,
         )
+        self._refresh_hero_death_turns()
         
         # Remove dead monsters from list
         self.monsters = [m for m in self.monsters if not m.is_dead]
@@ -929,10 +1869,9 @@ class GameState:
         if not interior_tiles:
             return None
 
-        chest_pos = max(
-            interior_tiles,
-            key=lambda pos: (abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1]), pos[1], pos[0]),
-        )
+        chest_pos = choose_room_chest_position(self.dungeon, room, interior_tiles)
+        if chest_pos is None:
+            return None
         self.dungeon.grid[chest_pos] = self.dungeon.TileType.TREASURE_CLOSED
         self.dungeon.treasure[chest_pos] = False
         room["chest_pos"] = list(chest_pos)
@@ -1235,6 +2174,7 @@ class GameState:
                 hero.current_wounds = 1
                 hero.is_ko = False
                 self.combat_log.append(f"{hero.name} regains consciousness with 1 wound.")
+        self._clear_next_exploration_magic_effects()
         # Reset for exploration phase
         self.hero_movement_remaining = {
             h.id: self._get_movement_allowance_for_phase(h, "EXPLORATION")
@@ -1385,6 +2325,8 @@ class GameState:
                         "witch_escape_pending": getattr(m, "witch_escape_pending", False),
                         "witch_rounds_remaining": getattr(m, "witch_rounds_remaining", None),
                         "witch_room_id": getattr(m, "witch_room_id", None),
+                        "status_effects": list(getattr(m, "status_effects", [])),
+                        "spellcasting": dict(getattr(m, "spellcasting", {})),
                     },
                 }
                 for m in self.monsters
@@ -1393,12 +2335,18 @@ class GameState:
             "hero_phase_active": self.hero_phase_active,
             "hero_movement_remaining": self.hero_movement_remaining,
             "hero_has_attacked": list(self.hero_has_attacked),
+            "hero_turn_start_positions": {
+                hero_id: [pos[0], pos[1]]
+                for hero_id, pos in self.hero_turn_start_positions.items()
+            },
+            "entered_tiles": [[pos[0], pos[1]] for pos in sorted(self.entered_tiles)],
             "turn_count": self.turn_count,
             "combat_log": self.combat_log[-50:],  # Last 50 messages
             "experience_gained": self.experience_gained,
             "gold_found": self.gold_found,
             "dungeon_counter_pool": self.dungeon_counter_pool,
             "held_dungeon_counters": self.held_dungeon_counters,
+            "section_spell_effects": self.section_spell_effects,
             "expedition_followers": self.expedition_followers,
         }
         
@@ -1478,6 +2426,12 @@ class GameState:
                 monster.is_character = m_data.get("is_character", monster.is_character)
                 monster.is_dead = m_data["is_dead"]
                 for key, value in m_data.get("special_state", {}).items():
+                    if key == "status_effects":
+                        monster.status_effects = list(value or [])
+                        continue
+                    if key == "spellcasting":
+                        monster.spellcasting = dict(value or {})
+                        continue
                     if value is not None:
                         setattr(monster, key, value)
                 self.monsters.append(monster)
@@ -1486,12 +2440,27 @@ class GameState:
             self.hero_phase_active = data.get("hero_phase_active", True)
             self.hero_movement_remaining = data.get("hero_movement_remaining", {h["id"]: h["speed"] for h in data.get("party", [])})
             self.hero_has_attacked = set(data.get("hero_has_attacked", []))
+            self.hero_turn_start_positions = {
+                hero_id: (int(pos[0]), int(pos[1]))
+                for hero_id, pos in data.get("hero_turn_start_positions", {}).items()
+                if isinstance(pos, list) and len(pos) == 2
+            }
+            self.entered_tiles = {
+                (int(pos[0]), int(pos[1]))
+                for pos in data.get("entered_tiles", [])
+                if isinstance(pos, list) and len(pos) == 2
+            }
+            if not self.entered_tiles:
+                self.entered_tiles = {(hero.x, hero.y) for hero in self.party}
+            if not self.hero_turn_start_positions:
+                self._capture_hero_turn_start_positions()
             self.turn_count = data.get("turn_count", 0)
             self.combat_log = data.get("combat_log", [])
             self.experience_gained = data.get("experience_gained", 0)
             self.gold_found = data.get("gold_found", 0)
             self.dungeon_counter_pool = data.get("dungeon_counter_pool", create_dungeon_counter_pool())
             self.held_dungeon_counters = data.get("held_dungeon_counters", [])
+            self.section_spell_effects = data.get("section_spell_effects", [])
             self.expedition_followers = data.get(
                 "expedition_followers",
                 {"maiden": False, "man_at_arms": False, "rogue": False},

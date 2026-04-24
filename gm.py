@@ -4,7 +4,7 @@ Handles monster tactics and automated GM phase.
 """
 
 import random
-from typing import List, Tuple, Optional
+from typing import Callable, List, Tuple, Optional
 from hero import Hero
 from monster import Monster
 from dungeon import Dungeon
@@ -205,7 +205,8 @@ def run_gm_phase(
     monsters: List[Monster],
     heroes: List[Hero],
     dungeon: Dungeon,
-    log: List[str]
+    log: List[str],
+    monster_spell_action: Optional[Callable[[Monster], bool]] = None,
 ) -> Tuple[List[Monster], List[str]]:
     """
     Execute the GM phase.
@@ -241,14 +242,23 @@ def run_gm_phase(
         if monster.is_dead:
             continue
 
+        can_attack = not any(effect.get("cannot_attack") for effect in monster.status_effects)
+        if any(effect.get("cannot_move") and effect.get("cannot_attack") for effect in monster.status_effects):
+            log.append(f"  {monster.name} is held fast by magic.")
+            continue
+
         if getattr(monster, "throne_leader", False):
             target = find_target_hero(heroes, monsters)
-            if target and dungeon.is_adjacent(monster.x, monster.y, target.x, target.y):
+            if can_attack and target and dungeon.is_adjacent(monster.x, monster.y, target.x, target.y):
                 log.append(f"  {monster.name} attacks {target.name} from the throne")
                 resolve_monster_attack(monster, target, log)
             else:
                 log.append(f"  {monster.name} holds the throne.")
             continue
+
+        if monster_spell_action is not None and monster.has_spellcasting():
+            if monster_spell_action(monster):
+                continue
         
         if tactic == "RANGED_ATTACK" and monster.has_ranged():
             # Try to move to LOS position
@@ -260,10 +270,49 @@ def run_gm_phase(
             target = find_target_hero(heroes, monsters)
             if target:
                 dist = dungeon.get_distance(monster.x, monster.y, target.x, target.y)
-                if dist <= monster.ranged.get("range", 12):
-                    if dungeon._has_los(monster.x, monster.y, target.x, target.y):
+                blocker_positions = {
+                    (hero.x, hero.y) for hero in heroes
+                    if not hero.is_dead and not hero.is_ko and (hero.x, hero.y) not in {(monster.x, monster.y), (target.x, target.y)}
+                }
+                blocker_positions.update(
+                    (other.x, other.y) for other in monsters
+                    if not other.is_dead and other is not monster and (other.x, other.y) != (target.x, target.y)
+                )
+                adjacent_friendlies = {
+                    (other.x, other.y) for other in monsters
+                    if not other.is_dead and other is not monster and dungeon.is_adjacent(monster.x, monster.y, other.x, other.y)
+                }
+                los_state = dungeon.get_los_state(
+                    monster.x,
+                    monster.y,
+                    target.x,
+                    target.y,
+                    model_blockers=blocker_positions,
+                    adjacent_friendly_blockers=adjacent_friendlies,
+                )
+                effective_dist = dist + (4 if los_state == "partial" else 0)
+                if effective_dist <= monster.ranged.get("range", 12):
+                    if los_state != "blocked":
                         log.append(f"  {monster.name} ranged attack on {target.name}")
-                        resolve_monster_ranged_attack(monster, target, log)
+                        if can_attack:
+                            fumble_target = next(
+                                (
+                                    other for other in monsters
+                                    if not other.is_dead
+                                    and other is not monster
+                                    and dungeon.is_adjacent(monster.x, monster.y, other.x, other.y)
+                                ),
+                                None,
+                            )
+                            resolve_monster_ranged_attack(
+                                monster,
+                                target,
+                                log,
+                                partial_obscured=(los_state == "partial"),
+                                fumble_target=fumble_target,
+                            )
+                        else:
+                            log.append(f"  {monster.name} is choking and cannot attack.")
         
         elif tactic in ("MOVE_ATTACK", "ATTACK_MOVE"):
             target = find_target_hero(heroes, monsters)
@@ -273,8 +322,11 @@ def run_gm_phase(
             # Check if already adjacent
             if dungeon.is_adjacent(monster.x, monster.y, target.x, target.y):
                 # Attack
-                log.append(f"  {monster.name} attacks {target.name}")
-                resolve_monster_attack(monster, target, log)
+                if can_attack:
+                    log.append(f"  {monster.name} attacks {target.name}")
+                    resolve_monster_attack(monster, target, log)
+                else:
+                    log.append(f"  {monster.name} staggers but cannot attack.")
             else:
                 # Move toward target
                 if tactic == "MOVE_ATTACK":
@@ -283,8 +335,11 @@ def run_gm_phase(
                         log.append(f"  {monster.name} moves toward {target.name}")
                         # Check if now adjacent
                         if dungeon.is_adjacent(monster.x, monster.y, target.x, target.y):
-                            log.append(f"  {monster.name} attacks {target.name}")
-                            resolve_monster_attack(monster, target, log)
+                            if can_attack:
+                                log.append(f"  {monster.name} attacks {target.name}")
+                                resolve_monster_attack(monster, target, log)
+                            else:
+                                log.append(f"  {monster.name} staggers but cannot attack.")
                 else:  # ATTACK_MOVE
                     # Move as close as possible
                     moved = move_monster_toward(monster, target.x, target.y, dungeon, occupied)

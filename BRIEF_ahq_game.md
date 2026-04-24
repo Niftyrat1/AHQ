@@ -20,16 +20,17 @@ The live codebase is an early playable vertical slice, not the full brief below.
 - save/load
 - partial solo-GM automation
 - Phase A correctness fixes for room persistence/reveal, BFS movement, and core combat edge cases
+- a `pygame-ce` frontend as the primary client, with older Tk files retained only as legacy reference code
 
-The live codebase does not yet fully implement the solo rules, the full turn structure, magic, chest/room-feature treasure logic, hero ranged combat, henchmen, or between-expeditions systems.
+The live codebase does not yet fully implement the solo rules, the full turn structure, magic, training/healer services, non-weapon expedition gear, henchmen, or between-expeditions systems.
 
 ## Implementation Order
 
 The recommended implementation order is:
 
 1. Turn-structure alignment for exploration/combat under the solo rules
-2. Missing combat systems: hero ranged combat, equipment effects, and rules-faithful KO/fate/ranged resolution
-3. Dungeon counters, traps, hazard-room interaction, status effects, and treasure resolution
+2. Finish the campaign-economy layer around the AHQ `Costs Table`: training, healer services, spell purchases/components, expedition gear, and ammo bundles
+3. Dungeon counters, traps, hazard-room interaction, status effects, treasure resolution, and non-weapon item usage
    Current hazard support now covers reveal-time wandering-monster/NPC/throne encounters plus interactive chasm, grate, pool, statue, mould, rats, bats, mushrooms, magic circle, trapdoor, rescued NPC follow-up, witch-escape handling, visible chest opening for lair/quest/chasm rooms, visible pit-leap actions, and liftable portcullises.
 4. Dungeon-screen overhaul: larger tiles, proper square artwork, real token/counter assets, and a minimap
 5. Magic, henchmen, and between-expeditions systems
@@ -37,13 +38,28 @@ The recommended implementation order is:
 
 ## Visual Roadmap
 
-The current tkinter board is functional but still uses simple placeholder square rendering. A planned visual overhaul should:
+The current `pygame-ce` board is functional but still uses simple placeholder square rendering. A planned visual overhaul should:
 
 - replace placeholder square fills with proper art for floor, wall, door, stairs, passage-end, treasure, and trap tiles
 - use token/counter assets from `assets/tokens/` for heroes, monsters, and key board markers where appropriate
 - increase board square size so token art reads cleanly instead of being compressed into the current 24px grid
 - add a minimap to preserve dungeon readability once the main board tiles become larger
 - rebalance the dungeon screen layout so the larger map, hero panel, and combat log all remain usable
+
+## Costs Table Coverage
+
+The full AHQ `Costs Table` should live in [data/tables.json](F:\Agents\CascadeProjects\windsurf-project\AHQ\data\tables.json) even where subsystems are not yet implemented. It is now intended as source data for:
+
+- armour and weapon purchases
+- training costs
+- healer services
+- spell learning and spell components
+- consumable expedition gear such as rope, iron spikes, Greek Fire, Rat Poison, and Screetch Bug
+
+Current implementation status:
+- Implemented: core combat equipment purchase and combat-stat application
+- Not yet implemented: training, healer, spell purchase, non-weapon expedition gear, ammo bundles, and inventory limits around those items
+- Future audit required: monster stat fidelity, armour-adjusted monster profiles, and monster-specific equipment/treasure
 
 ---
 

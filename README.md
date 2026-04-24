@@ -4,6 +4,8 @@ A single-player desktop adaptation of Advanced HeroQuest focused on the solo rul
 
 Current repository status: early `Phase 1` implementation. The project has working hero creation, dungeon exploration, basic melee combat, save/load, and partial solo-GM automation, but it does not yet implement the full solo AHQ ruleset.
 
+The project now runs on `pygame-ce` by default via [main.py](F:\Agents\CascadeProjects\windsurf-project\AHQ\main.py). The older Tk frontend files remain in the repo only as legacy references during cleanup.
+
 ## Phase 1 Features
 
 - **Tavern Screen:** Create heroes with rolled stats, manage party of up to 4
@@ -14,9 +16,27 @@ Current repository status: early `Phase 1` implementation. The project has worki
 ## Current Gaps
 
 - Solo rules are only partially implemented
-- Hero ranged combat, magic, richer room-feature treasure logic, and henchmen are still missing
+- Magic, richer room-feature treasure logic, henchmen, training, healer services, and broader between-expedition shopping are still missing
 - Between-expeditions systems and the full quest-book/solo content are not implemented
 - Several solo/AHQ fidelity issues still remain, especially around turn structure, dungeon counters, and equipment depth
+
+## Costs Table Status
+
+The full AHQ campaign `Costs Table` from [Advanced HeroQuest.md](F:\Agents\CascadeProjects\windsurf-project\document_extractor\output\Advanced%20HeroQuest.md:3532) is now represented in [data/tables.json](F:\Agents\CascadeProjects\windsurf-project\AHQ\data\tables.json) under `costs_table`.
+
+Implemented in the live game:
+- Core tavern purchase flow for combat equipment: melee weapons, ranged weapons, shields, and armour
+- AHQ combat-stat effects for the supported weapon and armour profiles
+
+Captured in data but not yet implemented in gameplay/UI:
+- Training costs
+- Spell purchases and spell components
+- Healer services
+- Rope, iron spikes, Greek Fire, Rat Poison, and Screetch Bug
+- Ammo-bundle purchasing and ammunition tracking
+
+Known approximation:
+- The current tavern sells direct weapon profiles. The rulebook prices bows and crossbows as weapon-plus-ammo bundles, so the shop still needs an inventory/ammo pass to become fully rules-faithful.
 
 ## Implementation Roadmap
 
@@ -52,19 +72,31 @@ Current repository status: early `Phase 1` implementation. The project has worki
 - Increase board square size to fit real token art cleanly
 - Add a minimap so larger on-board tiles do not reduce navigation clarity
 - Rework the dungeon screen layout so the larger board, sidebars, and log remain readable together
+- Finish polishing the `pygame-ce` frontend and remove remaining legacy Tk assumptions from docs/assets over time
 
 ### Phase E - Documentation and Validation
 - Keep architecture docs aligned with the live code shape
 - Add regression tests for dungeon generation, room state persistence, and combat edge cases
 - Document which AHQ solo rules are implemented, simplified, or intentionally deferred
+- Add a dedicated audit pass for monster stat fidelity, armour-adjusted monster profiles, and monster-carried equipment/treasure
 
 ## Setup
 
-No installation needed - uses built-in tkinter!
+Install dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
 
 Run the game:
 ```bash
 python main.py
+```
+
+Alternate entry alias:
+
+```bash
+python main_pygame.py
 ```
 
 ## How to Play

@@ -54,6 +54,20 @@ TRAPS: Dict[str, TrapDefinition] = {
     "Guillotine": TrapDefinition("Guillotine", 7, 7),
 }
 
+TRAP_SYMBOLS = {
+    "Pit Trap": "PT",
+    "Crossfire": "CF",
+    "Portcullis": "PC",
+    "Poison Dart": "PD",
+    "Blocks": "BL",
+    "Gas": "GS",
+    "Mantrap": "MT",
+    "Spike": "SP",
+    "Shock": "SH",
+    "Magic": "MG",
+    "Guillotine": "GU",
+}
+
 MAGIC_TRAP_SPELLS = (
     (1, 2, "Inferno of Doom"),
     (3, 4, "Lightning Bolt"),
@@ -133,6 +147,56 @@ def mark_trap(dungeon, pos, trap_type: str, symbol: str, blocks_movement: bool =
     }
 
 
+def _get_trap_zone_positions(pos: Tuple[int, int], source: str) -> List[Tuple[int, int]]:
+    """Return the blocked zone for a visible undisbarmed trap."""
+    if source == "chest":
+        return [pos]
+    x, y = pos
+    return [
+        (x, y),
+        (x - 1, y),
+        (x + 1, y),
+        (x, y - 1),
+        (x, y + 1),
+    ]
+
+
+def mark_visible_trap(dungeon, pos: Tuple[int, int], trap: TrapDefinition, source: str = "room_or_passage"):
+    """Record a spotted trap that can later be disarmed."""
+    zone = _get_trap_zone_positions(pos, source)
+    for zone_pos in zone:
+        symbol = TRAP_SYMBOLS.get(trap.name, "TR") if zone_pos == pos else ""
+        mark_trap(
+            dungeon,
+            zone_pos,
+            "visible_trap_zone",
+            symbol,
+            blocks_movement=True,
+            trap_name=trap.name,
+            disarm_chance=trap.disarm_chance,
+            trap_source=source,
+            trap_center=[pos[0], pos[1]],
+            trap_zone=[[item[0], item[1]] for item in zone],
+            careful_movement_only=(trap.name == "Blocks"),
+            zone_tile=(zone_pos != pos),
+        )
+
+
+def clear_visible_trap(dungeon, pos: Tuple[int, int]):
+    """Remove a visible trap zone from the dungeon state."""
+    marker = dungeon.trap_markers.get(pos)
+    if marker is None:
+        return
+    center_data = marker.get("trap_center")
+    if isinstance(center_data, list) and len(center_data) == 2:
+        center = (int(center_data[0]), int(center_data[1]))
+        marker = dungeon.trap_markers.get(center, marker)
+    zone_data = marker.get("trap_zone", [])
+    for zone_pos in zone_data:
+        if isinstance(zone_pos, list) and len(zone_pos) == 2:
+            dungeon.trap_markers.pop((int(zone_pos[0]), int(zone_pos[1])), None)
+
+
 def get_trap_marker(dungeon, pos: Tuple[int, int], trap_type: Optional[str] = None) -> Optional[dict]:
     """Return trap marker metadata for a tile, optionally filtered by type."""
     marker = dungeon.trap_markers.get(pos)
@@ -160,10 +224,12 @@ def resolve_trap_event(
     dungeon,
     log: List[str],
     start_wandering_combat: Callable[[tuple], None],
+    resolve_magic_spell: Optional[Callable[[object, str, Optional[Tuple[int, int]]], None]] = None,
     source: str = "room_or_passage",
     trap_name: Optional[str] = None,
     can_spot: bool = True,
     can_disarm: bool = True,
+    trap_pos: Optional[Tuple[int, int]] = None,
 ) -> TrapDefinition:
     """Resolve a trap using the AHQ tables and current engine defaults."""
     trap = TRAPS[trap_name] if trap_name is not None else roll_random_trap(source)
@@ -184,26 +250,13 @@ def resolve_trap_event(
         log.append(f"  Spot roll: {spot_roll}{spot_bonus_note} -> {'spotted' if spotted else 'missed'}.")
 
     # Pit traps are explicitly spotted but not avoided.
+    trap_location = trap_pos if trap_pos is not None else (hero.x, hero.y)
+
     if trap.name == "Pit Trap" and spotted:
         log.append("  Pit trap spotted, but the victim still sets it off per the AHQ rules.")
     elif spotted and trap.disarm_chance and can_disarm:
-        raw_disarm_roll = _roll_d12()
-        disarm_roll = raw_disarm_roll + disarm_bonus
-        log.append(f"  Disarm roll: {disarm_roll}{disarm_bonus_note}.")
-
-        if raw_disarm_roll == 12:
-            hero.trap_disarm_bonus = getattr(hero, "trap_disarm_bonus", 0) + 1
-            log.append(f"  Perfect technique: {hero.name} gains +1 on future disarm attempts.")
-
-        if disarm_roll >= trap.disarm_chance:
-            log.append("  Trap disarmed.")
-            return trap
-
-        log.append("  Disarm failed. The trap goes off.")
-        _apply_trap_effect(trap, hero, dungeon, log, start_wandering_combat)
-        if raw_disarm_roll == 1:
-            log.append("  Disarm blunder: 1 extra wound above the trap's normal effect.")
-            apply_damage_to_hero(hero, 1, log)
+        mark_visible_trap(dungeon, trap_location, trap, source)
+        log.append("  Trap spotted before it takes effect. It remains armed until a hero disarms it.")
         return trap
     elif spotted:
         if trap.disarm_chance is None:
@@ -211,14 +264,71 @@ def resolve_trap_event(
         else:
             log.append("  Trap left active; the current engine resolves it immediately.")
 
-    _apply_trap_effect(trap, hero, dungeon, log, start_wandering_combat)
+    _apply_trap_effect(trap, hero, dungeon, log, start_wandering_combat, trap_location, resolve_magic_spell)
     return trap
 
 
-def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], start_wandering_combat):
+def attempt_disarm_trap(hero, dungeon, log: List[str], pos: Tuple[int, int]) -> bool:
+    """Attempt to disarm a visible trap zone."""
+    marker = dungeon.trap_markers.get(pos)
+    if marker is None:
+        log.append("  There is no visible trap there to disarm.")
+        return False
+
+    center_data = marker.get("trap_center")
+    if isinstance(center_data, list) and len(center_data) == 2:
+        center = (int(center_data[0]), int(center_data[1]))
+    else:
+        center = pos
+    marker = dungeon.trap_markers.get(center, marker)
+
+    trap_name = marker.get("trap_name")
+    if trap_name not in TRAPS:
+        log.append("  This trap cannot be disarmed here.")
+        return False
+
+    trap = TRAPS[trap_name]
+    disarm_chance = trap.disarm_chance
+    if disarm_chance is None:
+        log.append(f"  {trap.name} cannot be disarmed.")
+        return False
+
+    disarm_bonus = _get_disarm_bonus(hero)
+    disarm_bonus_note = f" (+{disarm_bonus} bonus)" if disarm_bonus else ""
+    raw_disarm_roll = _roll_d12()
+    disarm_roll = raw_disarm_roll + disarm_bonus
+    log.append(f"  Disarm roll: {disarm_roll}{disarm_bonus_note}.")
+
+    if raw_disarm_roll == 12:
+        hero.trap_disarm_bonus = getattr(hero, "trap_disarm_bonus", 0) + 1
+        log.append(f"  Perfect technique: {hero.name} gains +1 on future disarm attempts.")
+
+    if disarm_roll >= disarm_chance:
+        clear_visible_trap(dungeon, center)
+        log.append("  Trap disarmed.")
+        return True
+
+    clear_visible_trap(dungeon, center)
+    log.append("  Disarm failed. The trap goes off.")
+    _apply_trap_effect(trap, hero, dungeon, log, lambda _: None, center, None)
+    if raw_disarm_roll == 1:
+        log.append("  Disarm blunder: 1 extra wound above the trap's normal effect.")
+        apply_damage_to_hero(hero, 1, log)
+    return False
+
+
+def _apply_trap_effect(
+    trap: TrapDefinition,
+    hero,
+    dungeon,
+    log: List[str],
+    start_wandering_combat,
+    trap_location: Tuple[int, int],
+    resolve_magic_spell: Optional[Callable[[object, str, Optional[Tuple[int, int]]], None]],
+):
     if trap.name == "Pit Trap":
-        dungeon.grid[(hero.x, hero.y)] = dungeon.TileType.PIT_TRAP
-        mark_trap(dungeon, (hero.x, hero.y), "pit_trap", "PT", blocks_movement=True)
+        dungeon.grid[trap_location] = dungeon.TileType.PIT_TRAP
+        mark_trap(dungeon, trap_location, "pit_trap", "PT", blocks_movement=True)
         _resolve_pit_fall(hero, dungeon, log)
         return
 
@@ -236,7 +346,7 @@ def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], star
         return
 
     if trap.name == "Portcullis":
-        mark_trap(dungeon, (hero.x, hero.y), "portcullis", "PC", blocks_movement=True)
+        mark_trap(dungeon, trap_location, "portcullis", "PC", blocks_movement=True)
         log.append(
             "  A portcullis slams down. Lifting it should take a full exploration turn and Strength total 20+."
         )
@@ -258,7 +368,7 @@ def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], star
     if trap.name == "Blocks":
         mark_trap(
             dungeon,
-            (hero.x, hero.y),
+            trap_location,
             "blocks",
             "BL",
             blocks_movement=False,
@@ -324,7 +434,9 @@ def _apply_trap_effect(trap: TrapDefinition, hero, dungeon, log: List[str], star
         spell_roll = _roll_d12()
         spell_name = _lookup_table(spell_roll, MAGIC_TRAP_SPELLS)
         log.append(f"  Magic trap: spell roll {spell_roll} -> {spell_name}.")
-        if spell_name == "Fireball":
+        if resolve_magic_spell is not None:
+            resolve_magic_spell(hero, spell_name, trap_location)
+        elif spell_name == "Fireball":
             damage, rolls = roll_damage(5, hero.toughness, False)
             log.append(f"  Fireball effect: {rolls} vs T{hero.toughness} = {damage} wounds.")
             if damage:
@@ -455,8 +567,13 @@ def resolve_pit_leap(hero, dungeon, log: List[str], pit_pos: Tuple[int, int]) ->
         return
 
     if gas_type == "Deadly Poison":
+        if hero.has_usable_healing_potion():
+            hero.consume_healing_potion()
+            hero.current_wounds = hero.max_wounds
+            log.append(f"  Deadly poison: {hero.name} drinks a Healing Potion and survives.")
+            return
         if hero.current_fate > 0:
-            log.append(f"  Deadly poison: {hero.name} spends Fate in lieu of the missing Healing Potion support.")
+            log.append(f"  Deadly poison: {hero.name} spends Fate instead of a Healing Potion.")
             hero.spend_fate()
         else:
             hero.is_dead = True

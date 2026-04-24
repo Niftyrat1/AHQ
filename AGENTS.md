@@ -12,6 +12,9 @@
 - `check_and_generate_junction` must NOT be defined at module level
 - `Set` must be imported from typing before use in type hints
 - `wandering_monsters` is a set on Dungeon, serialised in to_dict/from_dict
+- `secret_door_searches` is a set on Dungeon and persists searched wall sections across save/load
+- `trap_markers` can now include persistent `visible_trap_zone` entries for spotted but undisbarmed traps
+- `GameState.entered_tiles` and `hero_turn_start_positions` are authoritative for exploration trap/search legality
 - `rooms` must be serialised once room state becomes authoritative for reveal, search, and combat placement
 - Trap rules live in `traps.py`; hazard tables and room hazard metadata live in `hazards.py`
 

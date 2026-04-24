@@ -76,6 +76,14 @@
     "PV": 6,
     "weapons": [{"name": "Plague Censer", "damage_dice": 2, "critical": 12, "fumble": 1}],
     "ranged": null,
+    "spellcasting": {
+      "mode": "warpscroll",
+      "charges": {
+        "Warpscroll": 1
+      },
+      "charging_spell": null,
+      "charge_turns": 0
+    },
     "is_sentry": false,
     "is_character": true
   },
@@ -92,6 +100,13 @@
     "PV": 7,
     "weapons": [{"name": "Dagger", "damage_dice": 1, "critical": 12, "fumble": 1}],
     "ranged": {"name": "Warp-lightning", "range": 12, "damage_dice": 2},
+    "spellcasting": {
+      "mode": "wizard",
+      "charges": {
+        "Fireball": 1,
+        "Flaming Skull of Terror": 1
+      }
+    },
     "is_sentry": false,
     "is_character": true
   },

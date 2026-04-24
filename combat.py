@@ -85,8 +85,16 @@ def resolve_melee_attack(
     if log is not None:
         log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
-    damage_dice = attacker.get_damage_dice() + attacker.get_bonus_melee_damage_dice()
-    damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
+    flaming_hand = attacker.get_status_effect("flaming_hand_of_destruction")
+    if flaming_hand is not None:
+        roll = roll_d(12)
+        damage = roll
+        rolls = [roll]
+        if log is not None:
+            log.append(f"  Flaming Hand of Destruction: automatic {damage} wounds from one D12 roll.")
+    else:
+        damage_dice = attacker.get_damage_dice() + attacker.get_bonus_melee_damage_dice()
+        damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
     
     if log is not None:
         log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
@@ -115,7 +123,8 @@ def resolve_monster_attack(
         (hit: bool, damage: int, hero_died_or_ko: bool)
     """
     # Get hit roll needed
-    hit_needed = get_hit_roll_needed(attacker.ws, defender.get_effective_ws())
+    defender_ws = 1 if defender.is_ko else defender.get_effective_ws()
+    hit_needed = get_hit_roll_needed(attacker.ws, defender_ws)
     
     # Roll to hit
     hit_roll = roll_d(12)
@@ -147,10 +156,11 @@ def resolve_monster_attack(
     
     # Roll damage
     attack_damage_dice = damage_dice if damage_dice is not None else attacker.get_damage_dice()
-    damage, rolls = roll_damage(attack_damage_dice, defender.toughness, is_critical)
+    toughness = defender.get_effective_toughness()
+    damage, rolls = roll_damage(attack_damage_dice, toughness, is_critical)
     
     if log is not None:
-        log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
+        log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
     
     hero_ko = apply_damage_to_hero(defender, damage, log)
     return True, damage, hero_ko
@@ -159,7 +169,9 @@ def resolve_monster_attack(
 def resolve_monster_ranged_attack(
     attacker: Monster,
     defender: Hero,
-    log: Optional[List[str]] = None
+    log: Optional[List[str]] = None,
+    partial_obscured: bool = False,
+    fumble_target: Optional[Monster] = None,
 ) -> Tuple[bool, int, bool]:
     """
     Resolve a monster ranged attack.
@@ -178,8 +190,19 @@ def resolve_monster_ranged_attack(
     attack_name = ranged_profile.get("name", "ranged attack")
     if log is not None:
         log.append(f"{attacker.name} uses {attack_name} on {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
+        if partial_obscured:
+            log.append("  Target is partially obscured.")
 
     if is_fumble:
+        if fumble_target is not None:
+            toughness = fumble_target.toughness
+            damage, rolls = roll_damage(ranged_profile.get("damage_dice", 1), toughness, False)
+            if log is not None:
+                log.append(f"  FUMBLE! {attacker.name} hits {fumble_target.name} instead.")
+                log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
+                if damage and fumble_target.take_damage(damage):
+                    log.append(f"  {fumble_target.name} is killed! (+{fumble_target.pv} PV)")
+            return False, damage, False
         if log is not None:
             log.append("  Miss!")
         return False, 0, False
@@ -192,12 +215,81 @@ def resolve_monster_ranged_attack(
     if log is not None:
         log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
 
-    damage, rolls = roll_damage(ranged_profile.get("damage_dice", 1), defender.toughness, is_critical)
+    toughness = defender.get_effective_toughness()
+    if is_critical:
+        toughness = max(1, (toughness + 1) // 2)
+    damage, rolls = roll_damage(ranged_profile.get("damage_dice", 1), toughness, is_critical)
     if log is not None:
-        log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
+        log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
 
     hero_ko = apply_damage_to_hero(defender, damage, log)
     return True, damage, hero_ko
+
+
+def resolve_hero_ranged_attack(
+    attacker: Hero,
+    defender: Monster,
+    log: Optional[List[str]] = None,
+    partial_obscured: bool = False,
+    fumble_target: Optional[Hero] = None,
+) -> Tuple[bool, int, str]:
+    """
+    Resolve a hero ranged attack.
+
+    Uses the hero's BS against the monster's BS, mirroring the existing
+    monster ranged resolution.
+    """
+    weapon = attacker.get_equipped_ranged_weapon() or {}
+    weapon_name = weapon.get("name", "ranged weapon")
+    hit_needed = get_hit_roll_needed(max(attacker.get_effective_bs(), 1), max(defender.bs, 1))
+    hit_roll = roll_d(12)
+    critical_threshold = attacker.get_ranged_critical()
+    fumble_threshold = attacker.get_ranged_fumble()
+
+    is_critical = hit_roll >= critical_threshold
+    is_fumble = hit_roll <= fumble_threshold
+
+    if log is not None:
+        log.append(
+            f"{attacker.name} shoots {weapon_name} at {defender.name}: rolled {hit_roll} (need {hit_needed}+)"
+        )
+        if partial_obscured:
+            log.append("  Target is partially obscured.")
+
+    if is_fumble:
+        if fumble_target is not None:
+            toughness = fumble_target.get_effective_toughness()
+            damage, rolls = roll_damage(attacker.get_ranged_damage_dice(), toughness, False)
+            if log is not None:
+                log.append(f"  FUMBLE! {attacker.name} hits {fumble_target.name} instead.")
+                log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
+            if damage:
+                apply_damage_to_hero(fumble_target, damage, log)
+            return False, damage, "fumble_ally"
+        if log is not None:
+            log.append("  Miss!")
+        return False, 0, "fumble"
+
+    if hit_roll < hit_needed and not is_critical:
+        if log is not None:
+            log.append("  Miss!")
+        return False, 0, "miss"
+
+    if log is not None:
+        log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
+
+    toughness = defender.toughness
+    if is_critical:
+        toughness = max(1, (toughness + 1) // 2)
+    damage, rolls = roll_damage(attacker.get_ranged_damage_dice(), toughness, is_critical)
+    if log is not None:
+        log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
+
+    died = defender.take_damage(damage)
+    if died and log is not None:
+        log.append(f"  {defender.name} is killed! (+{defender.pv} PV)")
+
+    return True, damage, "critical" if is_critical else "hit"
 
 
 def apply_damage_to_hero(defender: Hero, damage: int, log: Optional[List[str]] = None) -> bool:
@@ -248,6 +340,11 @@ def roll_damage(dice: int, toughness: int, is_critical: bool = False) -> tuple:
         dice_to_roll = extra_dice
     
     return wounds, rolls
+
+
+def resolve_spell_damage(dice: int, toughness: int) -> tuple:
+    """Resolve spell damage against a Toughness value."""
+    return roll_damage(dice, toughness, False)
 
 
 def do_surprise_roll(has_elf: bool = False, has_sentry: bool = False) -> Tuple[str, int, int]:

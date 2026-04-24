@@ -4,7 +4,7 @@ Handles room creation beyond doors in passages.
 """
 
 import random
-from typing import TYPE_CHECKING, Dict, List, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from hazards import roll_hazard_room, describe_hazard, hazard_blocks_movement
 
@@ -66,23 +66,49 @@ def _place_room_chest(dungeon: "Dungeon", room_data: dict, occupied_tiles=None):
         pos for pos in room_data.get("interior_tiles", set())
         if pos not in occupied and dungeon.get_tile(pos[0], pos[1]) == dungeon.TileType.FLOOR
     )
+    chest_pos = choose_room_chest_position(dungeon, room_data, candidates)
+    if chest_pos is None:
+        return None
+
+    dungeon.grid[chest_pos] = dungeon.TileType.TREASURE_CLOSED
+    dungeon.treasure[chest_pos] = False
+    room_data["chest_pos"] = list(chest_pos)
+    return chest_pos
+
+
+def _chest_clearance_score(dungeon: "Dungeon", pos: Tuple[int, int]) -> Tuple[int, int]:
+    """Score a chest tile by how easy it is to walk around."""
+    open_sides = 0
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        if dungeon.get_tile(pos[0] + dx, pos[1] + dy) == dungeon.TileType.FLOOR:
+            open_sides += 1
+    return (1 if open_sides >= 4 else 0, open_sides)
+
+
+def choose_room_chest_position(
+    dungeon: "Dungeon",
+    room_data: dict,
+    candidates: List[Tuple[int, int]],
+) -> Optional[Tuple[int, int]]:
+    """Choose a chest tile, preferring tiles at least one square in from every wall."""
     if not candidates:
         return None
 
     entrance = room_data.get("entrance")
     if isinstance(entrance, list) and len(entrance) == 2:
         entrance_pos = (int(entrance[0]), int(entrance[1]))
-        chest_pos = max(
-            candidates,
-            key=lambda pos: (abs(pos[0] - entrance_pos[0]) + abs(pos[1] - entrance_pos[1]), pos[1], pos[0]),
-        )
     else:
-        chest_pos = candidates[-1]
+        entrance_pos = candidates[0]
 
-    dungeon.grid[chest_pos] = dungeon.TileType.TREASURE_CLOSED
-    dungeon.treasure[chest_pos] = False
-    room_data["chest_pos"] = list(chest_pos)
-    return chest_pos
+    return max(
+        candidates,
+        key=lambda pos: (
+            _chest_clearance_score(dungeon, pos),
+            abs(pos[0] - entrance_pos[0]) + abs(pos[1] - entrance_pos[1]),
+            pos[1],
+            pos[0],
+        ),
+    )
 
 
 def _try_room_position(dungeon: "Dungeon", door_x: int, door_y: int,

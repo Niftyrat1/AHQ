@@ -25,6 +25,7 @@ class Dungeon:
         self.debug_log = debug_log
         self.treasure: Dict[Tuple[int, int], bool] = {}
         self.trap_markers: Dict[Tuple[int, int], dict] = {}
+        self.secret_door_searches: Set[Tuple[int, int]] = set()
         self.hero_start = (0, 0)
         self.pending_junctions: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
         self.rooms: List[dict] = []
@@ -60,6 +61,8 @@ class Dungeon:
         self.grid[(-1, 0)] = TileType.WALL
         self.grid[(-1, 1)] = TileType.WALL
         self.grid[(-1, 2)] = TileType.WALL
+        self.explored.add((-1, 0))
+        self.explored.add((-1, 1))
         
         # 2-wide passage going East for 7 tiles (starting from x=2, after stairs)
         for i in range(2, 9):
@@ -568,6 +571,10 @@ class Dungeon:
         door_info["is_open"] = True
         self.grid[(x, y)] = TileType.DOOR_OPEN
         self.explored.add((x, y))
+
+        if door_info.get("bright_key_roll") is not None and int(door_info["bright_key_roll"]) <= 4:
+            self._log(f"    Bright Key door at ({x}, {y}) opens onto solid rock")
+            return True
         
         gen_x = x + direction[0]
         gen_y = y + direction[1]
@@ -618,6 +625,10 @@ class Dungeon:
     
     def _has_los(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Check if there's clear line of sight between two points."""
+        return self.get_los_state(x1, y1, x2, y2) != "blocked"
+
+    def _get_line_positions(self, x1: int, y1: int, x2: int, y2: int) -> List[Tuple[int, int]]:
+        """Return Bresenham-style points between two squares, including endpoints."""
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         x, y = x1, y1
@@ -627,20 +638,46 @@ class Dungeon:
         error = dx - dy
         dx *= 2
         dy *= 2
-        
+
+        positions: List[Tuple[int, int]] = []
         for _ in range(n):
-            if (x, y) != (x1, y1) and (x, y) != (x2, y2):
-                if self.is_blocked(x, y):
-                    return False
-            
+            positions.append((x, y))
             if error > 0:
                 x += x_inc
                 error -= dy
             else:
                 y += y_inc
                 error += dx
-        
-        return True
+        return positions
+
+    def get_los_state(
+        self,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        model_blockers: Optional[Set[Tuple[int, int]]] = None,
+        adjacent_friendly_blockers: Optional[Set[Tuple[int, int]]] = None,
+    ) -> str:
+        """Return `clear`, `partial`, or `blocked` line of sight between two points."""
+        partial = False
+        for x, y in self._get_line_positions(x1, y1, x2, y2):
+            if (x, y) in {(x1, y1), (x2, y2)}:
+                continue
+            tile = self.get_tile(x, y)
+            if tile in (TileType.DOOR_CLOSED, TileType.DOOR_OPEN):
+                attacker_adjacent = abs(x1 - x) + abs(y1 - y) == 1
+                target_adjacent = abs(x2 - x) + abs(y2 - y) == 1
+                if not attacker_adjacent and not target_adjacent:
+                    return "blocked"
+                continue
+            if self.is_blocked(x, y):
+                return "blocked"
+            if model_blockers and (x, y) in model_blockers:
+                if adjacent_friendly_blockers and (x, y) in adjacent_friendly_blockers:
+                    continue
+                partial = True
+        return "partial" if partial else "clear"
     
     def _place_monster(self, monster_id: str, x: int, y: int):
         """Instantiate and register a monster via the game's monster list."""
@@ -708,6 +745,7 @@ class Dungeon:
             "wandering_monsters": [self._serialize_pos(pos) for pos in self.wandering_monsters],
             "treasure": {self._serialize_pos(pos): v for pos, v in self.treasure.items()},
             "trap_markers": {self._serialize_pos(pos): data for pos, data in self.trap_markers.items()},
+            "secret_door_searches": [self._serialize_pos(pos) for pos in self.secret_door_searches],
             "hero_start": self.hero_start,
             "pending_junctions": pending,
             "rooms": serialized_rooms,
@@ -741,6 +779,10 @@ class Dungeon:
         dungeon.trap_markers = {}
         for key, val in data.get("trap_markers", {}).items():
             dungeon.trap_markers[cls._deserialize_pos(key)] = val
+
+        dungeon.secret_door_searches = set()
+        for pos_str in data.get("secret_door_searches", []):
+            dungeon.secret_door_searches.add(cls._deserialize_pos(pos_str))
         
         dungeon.pending_junctions = {}
         for key, junction_data in data.get("pending_junctions", {}).items():

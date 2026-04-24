@@ -26,6 +26,7 @@ class Monster:
         pv: int,
         weapons: list,
         ranged: Optional[Dict] = None,
+        spellcasting: Optional[Dict] = None,
         is_sentry: bool = False,
         is_character: bool = False
     ):
@@ -50,6 +51,7 @@ class Monster:
         # Combat
         self.weapons = weapons
         self.ranged = ranged
+        self.spellcasting = dict(spellcasting or {})
         
         # Flags
         self.is_sentry = is_sentry
@@ -61,6 +63,7 @@ class Monster:
         
         # State
         self.is_dead = False
+        self.status_effects = []
     
     def get_damage_dice(self) -> int:
         """Get number of damage dice."""
@@ -83,6 +86,24 @@ class Monster:
     def has_ranged(self) -> bool:
         """Check if monster has ranged attack."""
         return self.ranged is not None
+
+    def has_spellcasting(self) -> bool:
+        """Check if monster has any spellcasting capability."""
+        charges = self.spellcasting.get("charges", {})
+        return any(int(value) > 0 for value in charges.values()) or bool(self.spellcasting.get("charging_spell"))
+
+    def get_available_spells(self) -> list[str]:
+        """Return spells that still have charges remaining."""
+        charges = self.spellcasting.get("charges", {})
+        return [name for name, value in charges.items() if int(value) > 0]
+
+    def consume_spell_charge(self, spell_name: str) -> bool:
+        """Spend a monster spell use if available."""
+        charges = self.spellcasting.setdefault("charges", {})
+        if int(charges.get(spell_name, 0)) <= 0:
+            return False
+        charges[spell_name] = int(charges[spell_name]) - 1
+        return True
     
     def take_damage(self, damage: int) -> bool:
         """
@@ -94,6 +115,44 @@ class Monster:
             self.is_dead = True
             return True
         return False
+
+    def get_status_effect(self, name: str) -> Optional[Dict[str, Any]]:
+        """Return a named monster status effect if present."""
+        for effect in self.status_effects:
+            if effect.get("name") == name:
+                return effect
+        return None
+
+    def has_status_effect(self, name: str) -> bool:
+        """Check whether a named status effect is active."""
+        return self.get_status_effect(name) is not None
+
+    def add_status_effect(self, name: str, **data: Any):
+        """Add or replace a named status effect."""
+        effect = {"name": name, **data}
+        existing = self.get_status_effect(name)
+        if existing is not None:
+            existing.clear()
+            existing.update(effect)
+            return
+        self.status_effects.append(effect)
+
+    def tick_status_effects(self) -> list[str]:
+        """Advance temporary monster effect timers."""
+        expired = []
+        remaining = []
+        for effect in self.status_effects:
+            turns = effect.get("turns")
+            if turns is None:
+                remaining.append(effect)
+                continue
+            effect["turns"] = turns - 1
+            if effect["turns"] <= 0:
+                expired.append(str(effect.get("name", "effect")))
+            else:
+                remaining.append(effect)
+        self.status_effects = remaining
+        return expired
     
     @classmethod
     def from_template(cls, monster_id: str, templates: Dict) -> "Monster":
@@ -113,6 +172,7 @@ class Monster:
             pv=data.get("PV", 1),
             weapons=data.get("weapons", []),
             ranged=data.get("ranged"),
+            spellcasting=data.get("spellcasting"),
             is_sentry=data.get("is_sentry", False),
             is_character=data.get("is_character", False)
         )

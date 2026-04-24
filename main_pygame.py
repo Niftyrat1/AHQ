@@ -1,4 +1,4 @@
-"""Primary entry point for the pygame-ce frontend."""
+"""Alias entry point for the primary pygame-ce frontend."""
 
 from ui.pygame_app import PygameApp
 

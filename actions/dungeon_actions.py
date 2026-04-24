@@ -21,6 +21,7 @@ from hazards import (
     resolve_statue_interaction,
     resolve_trapdoor_open,
 )
+from magic_treasure import generate_magic_treasure
 from traps import get_pit_leap_destination, get_trap_marker
 
 if TYPE_CHECKING:
@@ -52,6 +53,156 @@ class DungeonAction:
     def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
         """Execute the action."""
         return ActionResult(False, "Not implemented")
+
+
+ORTHOGONAL_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+
+def _normalize_pos_list(positions) -> set[Tuple[int, int]]:
+    """Convert room position containers into a tuple set."""
+    return {
+        (int(pos[0]), int(pos[1]))
+        for pos in positions or []
+        if isinstance(pos, (list, tuple)) and len(pos) == 2
+    }
+
+
+def _get_room_interior(room: dict) -> set[Tuple[int, int]]:
+    """Return a room's interior tiles as tuples."""
+    interior = room.get("interior_tiles", set())
+    if isinstance(interior, set):
+        return set(interior)
+    return _normalize_pos_list(interior)
+
+
+def _get_room_entrance(room: dict) -> Optional[Tuple[int, int]]:
+    """Return the recorded entrance door position for a room."""
+    entrance = room.get("entrance")
+    if isinstance(entrance, list) and len(entrance) == 2:
+        return (int(entrance[0]), int(entrance[1]))
+    if isinstance(entrance, tuple) and len(entrance) == 2:
+        return (int(entrance[0]), int(entrance[1]))
+    return None
+
+
+def _find_room_containing(hero: "Hero", dungeon: "Dungeon") -> Optional[dict]:
+    """Return the room currently containing the hero."""
+    return dungeon.find_room_for_tile(hero.x, hero.y)
+
+
+def _get_room_doors(dungeon: "Dungeon", room: dict) -> set[Tuple[int, int]]:
+    """Return door positions bordering a room interior."""
+    interior = _get_room_interior(room)
+    room_doors = set()
+    for door_pos in dungeon.doors:
+        if any(
+            (door_pos[0] + dx, door_pos[1] + dy) in interior
+            for dx, dy in ORTHOGONAL_DIRECTIONS
+        ):
+            room_doors.add(door_pos)
+    return room_doors
+
+
+def _room_allows_secret_search(dungeon: "Dungeon", room: dict) -> bool:
+    """Room is legal for secret-door searching only if it has the entrance door and no others."""
+    entrance = _get_room_entrance(room)
+    if entrance is None:
+        return False
+    extra_doors = _get_room_doors(dungeon, room) - {entrance}
+    return not extra_doors
+
+
+def _get_corridor_section_tiles(hero: "Hero", dungeon: "Dungeon") -> set[Tuple[int, int]]:
+    """Return the connected explored corridor section containing the hero."""
+    start = (hero.x, hero.y)
+    corridor_tiles = {dungeon.TileType.FLOOR, dungeon.TileType.PASSAGE_END}
+    if dungeon.get_tile(*start) not in corridor_tiles:
+        return set()
+
+    section = set()
+    frontier = [start]
+    while frontier:
+        pos = frontier.pop()
+        if pos in section:
+            continue
+        if dungeon.get_tile(*pos) not in corridor_tiles:
+            continue
+        if dungeon.find_room_for_tile(*pos) is not None:
+            continue
+        section.add(pos)
+        for dx, dy in ORTHOGONAL_DIRECTIONS:
+            nxt = (pos[0] + dx, pos[1] + dy)
+            if nxt not in section:
+                frontier.append(nxt)
+    return section
+
+
+def _get_dead_end_search_context(hero: "Hero", dungeon: "Dungeon") -> Optional[dict]:
+    """Return dead-end search metadata if the hero is in a searchable dead end."""
+    section = _get_corridor_section_tiles(hero, dungeon)
+    if not section:
+        return None
+    if not any(dungeon.get_tile(*pos) == dungeon.TileType.PASSAGE_END for pos in section):
+        return None
+    xs = {pos[0] for pos in section}
+    ys = {pos[1] for pos in section}
+    orientation = None
+    if len(xs) > len(ys):
+        orientation = "horizontal"
+    elif len(ys) > len(xs):
+        orientation = "vertical"
+    return {"section": section, "orientation": orientation}
+
+
+def _hero_started_turn_in_search_area(hero: "Hero", dungeon: "Dungeon", game) -> bool:
+    """Check the AHQ requirement that secret searches start the turn in the same area."""
+    start = game.hero_turn_start_positions.get(hero.id)
+    if start is None:
+        return False
+
+    room = _find_room_containing(hero, dungeon)
+    if room is not None:
+        return start in _get_room_interior(room)
+
+    dead_end = _get_dead_end_search_context(hero, dungeon)
+    if dead_end is None:
+        return False
+    return start in dead_end["section"]
+
+
+def _is_searchable_dead_end_wall(hero: "Hero", wall_pos: Tuple[int, int], orientation: Optional[str]) -> bool:
+    """Dead-end secret-door searches only work on the long side walls."""
+    if orientation == "horizontal":
+        return wall_pos[1] != hero.y
+    if orientation == "vertical":
+        return wall_pos[0] != hero.x
+    return True
+
+
+def _get_secret_searchable_walls(hero: "Hero", dungeon: "Dungeon") -> List[Tuple[int, int]]:
+    """Return adjacent wall tiles that can legally be searched for secret doors."""
+    room = _find_room_containing(hero, dungeon)
+    if room is not None:
+        if not _room_allows_secret_search(dungeon, room):
+            return []
+        allowed_wall = lambda pos: True
+    else:
+        dead_end = _get_dead_end_search_context(hero, dungeon)
+        if dead_end is None:
+            return []
+        allowed_wall = lambda pos: _is_searchable_dead_end_wall(hero, pos, dead_end["orientation"])
+
+    searchable = []
+    for dx, dy in ORTHOGONAL_DIRECTIONS:
+        wall_pos = (hero.x + dx, hero.y + dy)
+        if dungeon.get_tile(*wall_pos) != dungeon.TileType.WALL:
+            continue
+        if wall_pos in getattr(dungeon, "secret_door_searches", set()):
+            continue
+        if not allowed_wall(wall_pos):
+            continue
+        searchable.append(wall_pos)
+    return searchable
 
 
 class OpenDoorAction(DungeonAction):
@@ -217,6 +368,36 @@ class LeapPitAction(DungeonAction):
         )
 
 
+class DisarmTrapAction(DungeonAction):
+    """Disarm an adjacent visible trap."""
+
+    name = "Disarm Trap"
+    icon = "DT"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        for dx, dy in ORTHOGONAL_DIRECTIONS + [(0, 0)]:
+            pos = (hero.x + dx, hero.y + dy)
+            marker = dungeon.trap_markers.get(pos)
+            if marker and marker.get("type") == "visible_trap_zone" and marker.get("disarm_chance") is not None:
+                return True
+        return False
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        for dx, dy in ORTHOGONAL_DIRECTIONS + [(0, 0)]:
+            pos = (hero.x + dx, hero.y + dy)
+            marker = dungeon.trap_markers.get(pos)
+            if marker and marker.get("type") == "visible_trap_zone" and marker.get("disarm_chance") is not None:
+                return ActionResult(
+                    success=True,
+                    message=game.disarm_visible_trap(hero, pos[0], pos[1]),
+                    end_turn=True,
+                    trigger_combat=game.mode == "COMBAT",
+                )
+        return ActionResult(False, "No visible trap nearby")
+
+
 class SearchSecretsAction(DungeonAction):
     """Search adjacent wall for secret doors."""
     
@@ -225,91 +406,39 @@ class SearchSecretsAction(DungeonAction):
     
     @classmethod
     def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
-        """Check if adjacent to a wall that hasn't been searched."""
-        # Get current room/section
-        room_idx = getattr(hero, 'current_room_id', None)
-        if room_idx is None:
-            # Check if in a room
-            for idx, room in enumerate(dungeon.rooms):
-                if (hero.x, hero.y) in room.get('interior_tiles', set()):
-                    room_idx = idx
-                    break
-        
-        if room_idx is None:
-            return False  # Not in a room or known section
-        
-        # Check if room has been searched for secrets
-        room = dungeon.rooms[room_idx]
-        if room and room.get('searched_secrets', False):
-            return False  # Already searched this room
-        
-        # Check if adjacent to any wall
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            tx, ty = hero.x + dx, hero.y + dy
-            if dungeon.get_tile(tx, ty) == dungeon.TileType.WALL:
-                # Check if this specific wall was searched
-                wall_key = (room_idx, tx, ty)
-                searched_walls = room.get('searched_walls', set()) if room else set()
-                if wall_key not in searched_walls:
-                    return True
-        return False
+        """Check whether the hero is in a legal search area with an unsearched wall."""
+        return bool(_get_secret_searchable_walls(hero, dungeon))
     
     @classmethod
     def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
-        """Search for secret doors per WHQ rules (D12)."""
-        # Find which room we're in
-        room_idx = None
-        for idx, room in enumerate(dungeon.rooms):
-            if (hero.x, hero.y) in room.get('interior_tiles', set()):
-                room_idx = idx
-                break
-        
-        if room_idx is None:
-            return ActionResult(False, "Must be in a room to search for secrets")
-        
-        room = dungeon.rooms[room_idx]
-        
-        # Find adjacent wall to search
-        wall_pos = None
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            tx, ty = hero.x + dx, hero.y + dy
-            if dungeon.get_tile(tx, ty) == dungeon.TileType.WALL:
-                wall_key = (room_idx, tx, ty)
-                searched_walls = room.get('searched_walls', set())
-                if wall_key not in searched_walls:
-                    wall_pos = (tx, ty)
-                    break
-        
-        if not wall_pos:
-            return ActionResult(False, "No unsearched walls adjacent")
-        
-        # Mark wall as searched
-        if 'searched_walls' not in room:
-            room['searched_walls'] = set()
-        room['searched_walls'].add((room_idx, wall_pos[0], wall_pos[1]))
-        
-        # Roll D12 for secret door
+        """Search for secret doors using the AHQ exploration rules."""
+        if not _hero_started_turn_in_search_area(hero, dungeon, game):
+            return ActionResult(False, "A hero must start the exploration turn in the same room or dead end to search for secret doors.")
+
+        wall_options = _get_secret_searchable_walls(hero, dungeon)
+        if not wall_options:
+            return ActionResult(False, "Secret-door searches are only allowed in dead ends or rooms with only the entrance door.")
+
+        wall_pos = wall_options[0]
+        dungeon.secret_door_searches.add(wall_pos)
+
         roll = random.randint(1, 12)
-        
         if roll == 1:
-            # GM may draw dungeon counter
+            game._draw_dungeon_counter("Searching for secret doors.")
             return ActionResult(
                 success=True,
-                message=f"Search roll: {roll}. GM may draw a dungeon counter.",
+                message=f"Search roll: {roll}. The wall holds no secret door.",
                 end_turn=True
             )
         elif 2 <= roll <= 6:
-            # No secret door
             return ActionResult(
                 success=True,
                 message=f"Search roll: {roll}. No secret door found.",
                 end_turn=True
             )
         else:  # 7-12
-            # Place secret door
             dungeon.grid[wall_pos] = dungeon.TileType.DOOR_CLOSED
             dungeon.doors[wall_pos] = {"is_open": False, "from_room": True}
-            room['searched_secrets'] = True  # Mark room as searched
             return ActionResult(
                 success=True,
                 message=f"Search roll: {roll}. Secret door found at {wall_pos}!",
@@ -335,7 +464,7 @@ class SearchTreasureAction(DungeonAction):
     
     @classmethod
     def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
-        """Search for hidden treasure per WHQ rules (2D12)."""
+        """Search for hidden treasure using the AHQ table."""
         # Find which room we're in
         room_idx = None
         room_data = None
@@ -360,20 +489,13 @@ class SearchTreasureAction(DungeonAction):
         total = roll1 + roll2
         
         if 2 <= total <= 6:
-            # GM may draw dungeon counter
-            return ActionResult(
-                success=True,
-                message=f"Treasure search roll: {total} ({roll1}+{roll2}). GM may draw a dungeon counter.",
-                end_turn=True
-            )
-        elif 7 <= total <= 16:
-            # No treasure
+            game._draw_dungeon_counter("Hidden treasure search.")
             return ActionResult(
                 success=True,
                 message=f"Treasure search roll: {total} ({roll1}+{roll2}). No hidden treasure.",
                 end_turn=True
             )
-        elif 17 <= total <= 23:
+        elif 7 <= total <= 16:
             # Gold cache: D6 × 5
             gold_roll = random.randint(1, 6)
             gold_amount = gold_roll * 5
@@ -384,11 +506,18 @@ class SearchTreasureAction(DungeonAction):
                 message=f"Treasure search roll: {total} ({roll1}+{roll2}). Found {gold_amount} gold coins!",
                 end_turn=True
             )
-        else:  # 24
-            # Magical treasure - consult Magic Treasure Table
+        else:  # 17-24
+            treasure_log: List[str] = []
+            item = generate_magic_treasure(hero, treasure_log)
+            for entry in treasure_log:
+                game.combat_log.append(entry)
+            game.hero_manager.update_hero(hero)
             return ActionResult(
                 success=True,
-                message=f"Treasure search roll: {total} ({roll1}+{roll2}). Found magical treasure! (Consult Magic Treasure Table)",
+                message=(
+                    f"Treasure search roll: {total} ({roll1}+{roll2}). "
+                    f"Found magical treasure: {item.get('name', 'Unknown')}."
+                ),
                 end_turn=True
             )
 
@@ -709,6 +838,60 @@ class RecruitRogueAction(DungeonAction):
         return ActionResult(True, resolve_recruit_rogue(room, game), end_turn=True)
 
 
+class RemoveArmourAction(DungeonAction):
+    """Remove currently worn armour and shields."""
+
+    name = "Remove Armour"
+    icon = "AR-"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        return any(
+            item.get("equipped") and item.get("type") in {"armour", "armor", "shield"}
+            for item in hero.equipment
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        removed = []
+        for item in hero.equipment:
+            if item.get("equipped") and item.get("type") in {"armour", "armor", "shield"}:
+                item["equipped"] = False
+                removed.append(str(item.get("name", "gear")))
+        if not removed:
+            return ActionResult(False, "No armour is currently being worn.")
+        return ActionResult(True, f"{hero.name} removes {', '.join(removed)}.", end_turn=True)
+
+
+class PutOnArmourAction(DungeonAction):
+    """Put on carried armour and shields."""
+
+    name = "Put On Armour"
+    icon = "AR+"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        if not hero.can_wear_armour():
+            return False
+        return any(
+            (not item.get("equipped")) and item.get("type") in {"armour", "armor", "shield"}
+            for item in hero.equipment
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        if not hero.can_wear_armour():
+            return ActionResult(False, f"{hero.name} cannot wear armour.")
+        equipped = []
+        for item in hero.equipment:
+            if (not item.get("equipped")) and item.get("type") in {"armour", "armor", "shield"}:
+                item["equipped"] = True
+                equipped.append(str(item.get("name", "gear")))
+        if not equipped:
+            return ActionResult(False, "No armour is available to put on.")
+        return ActionResult(True, f"{hero.name} puts on {', '.join(equipped)}.", end_turn=True)
+
+
 def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
     """Get list of available action classes for the hero."""
     if hero.is_under_gm_control():
@@ -730,12 +913,21 @@ def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
 
     if LeapPitAction.is_available(hero, dungeon):
         actions.append(LeapPitAction)
+
+    if DisarmTrapAction.is_available(hero, dungeon):
+        actions.append(DisarmTrapAction)
     
     if SearchSecretsAction.is_available(hero, dungeon):
         actions.append(SearchSecretsAction)
     
     if SearchTreasureAction.is_available(hero, dungeon):
         actions.append(SearchTreasureAction)
+
+    if RemoveArmourAction.is_available(hero, dungeon):
+        actions.append(RemoveArmourAction)
+
+    if PutOnArmourAction.is_available(hero, dungeon):
+        actions.append(PutOnArmourAction)
 
     if DrinkPoolAction.is_available(hero, dungeon):
         actions.append(DrinkPoolAction)

@@ -395,7 +395,18 @@ def resolve_trapdoor_open(hero, room, game) -> str:
     roll = _roll_d12()
     if roll == 1:
         hazard["opened_result"] = "trap"
-        resolve_trap_event(hero, game.dungeon, game.combat_log, lambda _: None, source="chest", can_spot=False, can_disarm=False)
+        resolve_trap_event(
+            hero,
+            game.dungeon,
+            game.combat_log,
+            lambda _: None,
+            resolve_magic_spell=lambda trapped_hero, spell_name, trap_origin=None: game._resolve_magic_trap_spell(
+                trapped_hero, spell_name, trap_origin
+            ),
+            source="chest",
+            can_spot=False,
+            can_disarm=False,
+        )
         return "Trapdoor roll: 1. Trapped trapdoor!"
     if 2 <= roll <= 3:
         hazard["opened_result"] = "room"
