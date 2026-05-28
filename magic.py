@@ -61,6 +61,7 @@ SPELL_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "target_mode": "model",
         "adjacent_only": True,
         "friendly_only": True,
+        "blocked_by_enemy_death_zone": True,
     },
     "power of the phoenix": {
         "name": "Power of the Phoenix",

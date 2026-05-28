@@ -25,6 +25,9 @@ _DEFAULT_FISTS_PROFILE = {
     "critical": None,
 }
 
+_ONE_PER_HERO_SUPPLIES = {"rope_10ft", "iron_spikes_10", "rat_poison", "screetch_bug"}
+_STACKABLE_SUPPLIES = {"greek_fire_flask"}
+
 
 def _strength_band_key(strength: int) -> str:
     """Map a strength value to the AHQ weapon-table band key."""
@@ -77,6 +80,16 @@ class Hero:
         id: Optional[str] = None,
         known_spells: Optional[List[str]] = None,
         spell_components: Optional[Dict[str, int]] = None,
+        inventory: Optional[Dict[str, int]] = None,
+        ammo: Optional[Dict[str, int]] = None,
+        expeditions_completed: int = 0,
+        is_henchman: bool = False,
+        henchman_type: Optional[str] = None,
+        employer_id: Optional[str] = None,
+        upkeep_cost: int = 0,
+        hire_cost: int = 0,
+        attracted_henchman: bool = False,
+        paid_spells_learned: int = 0,
     ):
         self.id = id or f"{name.lower().replace(' ', '_')}_{random.randint(1000, 9999)}"
         self.name = name
@@ -105,6 +118,18 @@ class Hero:
         self.equipment = equipment or [{"name": "Dagger", "key": "dagger", "type": "weapon", "equipped": True}]
         self.known_spells = list(known_spells) if known_spells is not None else get_default_known_spells(class_type)
         self.spell_components = dict(spell_components) if spell_components is not None else get_default_spell_components(class_type)
+        self.inventory = dict(inventory) if inventory is not None else {}
+        self.ammo = dict(ammo) if ammo is not None else {"arrows": 0, "bolts": 0}
+        self.ammo_spent = {"arrows": 0, "bolts": 0}
+        self.last_ranged_ammo_effect: Optional[str] = None
+        self.expeditions_completed = int(expeditions_completed)
+        self.is_henchman = bool(is_henchman)
+        self.henchman_type = str(henchman_type) if henchman_type else None
+        self.employer_id = employer_id
+        self.upkeep_cost = int(upkeep_cost)
+        self.hire_cost = int(hire_cost)
+        self.attracted_henchman = bool(attracted_henchman)
+        self.paid_spells_learned = int(paid_spells_learned)
         
         # State
         self.is_dead = False
@@ -115,6 +140,9 @@ class Hero:
         self.free_spell_cast = 0
         self.status_effects: List[Dict[str, Any]] = []
         self.death_turn: Optional[int] = None
+        self.pending_fate_decision: Optional[Dict[str, Any]] = None
+        self.turn_wounds_snapshot = wounds
+        self.damage_taken_this_turn = 0
         
         # Position in dungeon (set when placed)
         self.x = 0
@@ -178,6 +206,81 @@ class Hero:
             return 0
         profile = self._get_item_profile(weapon)
         return int(profile.get("max_range", 0))
+
+    def get_ranged_ammo_type(self) -> Optional[str]:
+        """Return the ammunition type used by the equipped ranged weapon, if any."""
+        weapon = self.get_equipped_ranged_weapon()
+        if weapon is None:
+            return None
+        profile = self._get_item_profile(weapon)
+        weapon_key = str(profile.get("key", "")).strip().lower()
+        weapon_name = str(profile.get("name", "")).strip().lower()
+        if "crossbow" in weapon_key or "crossbow" in weapon_name:
+            return "bolts"
+        if any(token in weapon_key for token in ("bow",)) or any(token in weapon_name for token in ("bow",)):
+            return "arrows"
+        return None
+
+    def ranged_weapon_consumes_ammo(self) -> bool:
+        """Whether the equipped ranged weapon uses arrows or bolts."""
+        return self.get_ranged_ammo_type() is not None
+
+    def has_ammo_for_ranged_weapon(self) -> bool:
+        """Whether the equipped ranged weapon has consumable ammo available."""
+        ammo_type = self.get_ranged_ammo_type()
+        if ammo_type is None:
+            return True
+        return self.get_ammo_count(ammo_type) > 0 or self._get_magic_ammo_item(ammo_type) is not None
+
+    def consume_ranged_ammo(self) -> bool:
+        """Spend one shot of ammunition for the equipped ranged weapon."""
+        ammo_type = self.get_ranged_ammo_type()
+        self.last_ranged_ammo_effect = None
+        if ammo_type is None:
+            return True
+        magic_ammo = self._get_magic_ammo_item(ammo_type)
+        if magic_ammo is not None:
+            magic_ammo["quantity"] = int(magic_ammo.get("quantity", 0)) - 1
+            self.last_ranged_ammo_effect = str(magic_ammo.get("ammo_effect", "")).strip().lower() or None
+            if int(magic_ammo.get("quantity", 0)) <= 0:
+                self.equipment.remove(magic_ammo)
+            return True
+        current = self.get_ammo_count(ammo_type)
+        if current <= 0:
+            return False
+        self.ammo[ammo_type] = current - 1
+        self.ammo_spent[ammo_type] = int(self.ammo_spent.get(ammo_type, 0)) + 1
+        return True
+
+    def _get_magic_ammo_item(self, ammo_type: str) -> Optional[Dict[str, Any]]:
+        """Return the first compatible magic arrow/bolt bundle with shots left."""
+        wanted = "arrow" if ammo_type == "arrows" else "bolt" if ammo_type == "bolts" else ammo_type
+        for item in self.equipment:
+            if item.get("type") != "ammo":
+                continue
+            if str(item.get("ammo_type", "")).strip().lower() != wanted:
+                continue
+            if int(item.get("quantity", 0)) > 0:
+                return item
+        return None
+
+    def recover_spent_ammo(self) -> Dict[str, int]:
+        """Recover spent ammunition after a victorious combat using AHQ rolls."""
+        recovered: Dict[str, int] = {}
+        for ammo_type in ("arrows", "bolts"):
+            spent = int(self.ammo_spent.get(ammo_type, 0))
+            if spent <= 0:
+                continue
+            threshold = 10 if ammo_type == "arrows" else 7
+            returned = 0
+            for _ in range(spent):
+                if random.randint(1, 12) >= threshold:
+                    returned += 1
+            if returned > 0:
+                self.ammo[ammo_type] = int(self.ammo.get(ammo_type, 0)) + returned
+                recovered[ammo_type] = returned
+            self.ammo_spent[ammo_type] = 0
+        return recovered
 
     def can_move_and_fire_ranged_weapon(self) -> bool:
         """Whether the equipped ranged weapon can be used after moving."""
@@ -353,6 +456,10 @@ class Hero:
     def is_wizard(self) -> bool:
         """Check if hero is a wizard."""
         return self.class_type == "Wizard"
+
+    def is_true_hero(self) -> bool:
+        """Whether this character is one of the core heroes rather than a henchman."""
+        return not self.is_henchman
     
     def can_wear_armour(self) -> bool:
         """Wizards cannot wear armour."""
@@ -409,22 +516,94 @@ class Hero:
         """
         Apply damage to hero. Returns True if hero is KO'd or killed.
         """
-        self.current_wounds -= damage
-        if self.current_wounds <= 0:
+        remaining_wounds = self.current_wounds - damage
+        self.current_wounds = max(0, remaining_wounds)
+        if self.is_henchman and remaining_wounds <= 0:
+            self.is_dead = True
             self.is_ko = True
-            if self.current_fate <= 0:
+            return True
+        if remaining_wounds <= 0:
+            self.is_ko = True
+            if remaining_wounds < 0:
                 self.is_dead = True
                 return True
-        return False
-    
-    def spend_fate(self) -> bool:
-        """Spend a fate point to negate damage. Returns True if spent."""
-        if self.current_fate > 0:
-            self.current_fate -= 1
-            self.current_wounds = 1  # Keep at 1 wound
-            self.is_ko = False
             return True
         return False
+
+    def start_turn_snapshot(self):
+        """Record the start-of-turn wound state for Fate handling."""
+        self.turn_wounds_snapshot = int(self.current_wounds)
+        self.damage_taken_this_turn = 0
+        pending = self.pending_fate_decision
+        if isinstance(pending, dict) and pending.get("type") == "damage":
+            self.pending_fate_decision = None
+
+    def record_turn_damage(self, damage: int):
+        """Track damage suffered in the current turn."""
+        self.damage_taken_this_turn = int(self.damage_taken_this_turn) + int(max(0, damage))
+    
+    def spend_fate(self) -> bool:
+        """Spend a Fate Point against the currently pending event."""
+        if not self._spend_fate_point():
+            return False
+        pending = dict(self.pending_fate_decision or {})
+        if str(pending.get("type", "damage")) == "damage":
+            self.current_wounds = max(1, int(self.turn_wounds_snapshot))
+        else:
+            self.current_wounds = max(1, self.current_wounds)
+        self.is_ko = False
+        self.is_dead = False
+        self.pending_fate_decision = None
+        self.damage_taken_this_turn = 0
+        return True
+
+    def get_stored_fate_points(self) -> int:
+        """Return non-regenerating Fate Points stored in carried Dawnstones."""
+        total = 0
+        for item in self.equipment:
+            if str(item.get("name", "")).strip().lower() != "dawnstone":
+                continue
+            total += int(item.get("fate_points", 0))
+        return max(0, total)
+
+    def has_fate_available(self) -> bool:
+        """Whether the hero can spend either normal Fate or Dawnstone Fate."""
+        return self.current_fate > 0 or self.get_stored_fate_points() > 0
+
+    def _spend_fate_point(self) -> bool:
+        """Spend normal Fate first, then non-regenerating Dawnstone Fate."""
+        if self.current_fate > 0:
+            self.current_fate -= 1
+            return True
+        for item in self.equipment:
+            if str(item.get("name", "")).strip().lower() != "dawnstone":
+                continue
+            stored = int(item.get("fate_points", 0))
+            if stored <= 0:
+                continue
+            item["fate_points"] = stored - 1
+            return True
+        return False
+
+    def queue_fate_decision(self, damage: int, source: Optional[str] = None):
+        """Record a pending choice to spend Fate against turn damage."""
+        self.pending_fate_decision = {
+            "type": "damage",
+            "damage": int(max(0, damage)),
+            "source": source or "attack",
+        }
+
+    def queue_failed_roll_fate_decision(self, source: str, **context: Any):
+        """Record a pending choice to convert a failed roll into a success."""
+        self.pending_fate_decision = {
+            "type": "failed_roll",
+            "source": source,
+            **context,
+        }
+
+    def has_pending_fate_decision(self) -> bool:
+        """Whether the hero is awaiting a Fate decision."""
+        return isinstance(self.pending_fate_decision, dict)
     
     def heal(self, amount: int):
         """Heal wounds up to max."""
@@ -523,6 +702,10 @@ class Hero:
         speed = self.speed + self.get_armour_skill_modifiers()["speed"] + self._get_equipped_magic_bonus("speed_bonus")
         for effect in self.status_effects:
             speed += int(effect.get("speed_delta", 0))
+            divisor = effect.get("speed_divisor_round_up")
+            if divisor:
+                div = int(divisor)
+                speed = max(1, (speed + div - 1) // div)
             if phase == "combat" and effect.get("combat_speed_multiplier"):
                 speed *= int(effect["combat_speed_multiplier"])
         return max(1, speed)
@@ -569,9 +752,148 @@ class Hero:
                 return True
         return False
 
+    def add_inventory_item(self, item_key: str, count: int = 1):
+        """Add a stackable between-expedition inventory item."""
+        self.inventory[item_key] = int(self.inventory.get(item_key, 0)) + int(count)
+
+    def remove_inventory_item(self, item_key: str, count: int = 1) -> bool:
+        """Remove a stackable between-expedition inventory item if available."""
+        current = int(self.inventory.get(item_key, 0))
+        if current < count:
+            return False
+        remaining = current - int(count)
+        if remaining > 0:
+            self.inventory[item_key] = remaining
+        else:
+            self.inventory.pop(item_key, None)
+        return True
+
+    def get_inventory_count(self, item_key: str) -> int:
+        """Return the count for a stackable between-expedition item."""
+        return int(self.inventory.get(item_key, 0))
+
+    def add_ammo(self, ammo_type: str, count: int):
+        """Add purchased ammunition for future ammo tracking."""
+        self.ammo[ammo_type] = int(self.ammo.get(ammo_type, 0)) + int(count)
+
+    def get_ammo_count(self, ammo_type: str) -> int:
+        """Return stored ammunition for the hero."""
+        return int(self.ammo.get(ammo_type, 0))
+
+    def get_total_carried_weapons(self) -> int:
+        """Return the total carried melee and ranged weapons."""
+        return sum(1 for item in self.equipment if item.get("type") in {"weapon", "ranged_weapon"})
+
+    def can_carry_equipment_item(self, item: Dict[str, Any]) -> tuple[bool, str]:
+        """Check whether the hero can legally carry a newly bought equipment item."""
+        item_type = str(item.get("type", "")).lower()
+        item_name = str(item.get("name", "item"))
+        if self.has_status_effect("lost_hand") and item_type in {"ranged_weapon", "shield"}:
+            return False, f"{self.name} cannot carry {item_name} after losing a hand."
+        if self.has_status_effect("lost_hand") and item.get("two_handed"):
+            return False, f"{self.name} cannot carry {item_name} after losing a hand."
+        if self.has_status_effect("lost_leg") and (item_type == "shield" or item.get("two_handed")):
+            return False, f"{self.name} cannot effectively use {item_name} after losing a leg."
+        if item_type in {"weapon", "ranged_weapon"} and self.get_total_carried_weapons() >= 3:
+            return False, f"{self.name} cannot carry more than three weapons."
+        if item_type in {"armour", "armor"} and any(existing.get("type") in {"armour", "armor"} for existing in self.equipment):
+            return False, f"{self.name} cannot carry another suit of armour."
+        if item_type == "shield" and any(existing.get("type") == "shield" for existing in self.equipment):
+            return False, f"{self.name} cannot carry another shield."
+        if item_type == "helm" and any(existing.get("type") == "helm" for existing in self.equipment):
+            return False, f"{self.name} cannot carry another helm."
+        if item_type == "ring" and any(existing.get("type") == "ring" for existing in self.equipment):
+            return False, f"{self.name} cannot carry another ring."
+        if item_type == "amulet" and any(existing.get("type") == "amulet" for existing in self.equipment):
+            return False, f"{self.name} cannot carry another amulet."
+        return True, f"{self.name} can carry {item_name}."
+
+    def can_carry_supply_item(self, item_key: str) -> tuple[bool, str]:
+        """Check whether the hero can legally carry another expedition supply item."""
+        current = self.get_inventory_count(item_key)
+        if item_key in _ONE_PER_HERO_SUPPLIES and current > 0:
+            return False, f"{self.name} is already carrying {item_key.replace('_', ' ')}."
+        if item_key not in _ONE_PER_HERO_SUPPLIES and item_key not in _STACKABLE_SUPPLIES and current > 0:
+            return False, f"{self.name} is already carrying {item_key.replace('_', ' ')}."
+        return True, ""
+
+    def can_carry_gold(self, amount: int, extra_carriers: int = 0) -> tuple[bool, int]:
+        """Check whether the hero can carry the specified extra gold."""
+        capacity = (250 * max(0, 1 + int(extra_carriers))) - int(self.gold)
+        return capacity >= amount, max(0, capacity)
+
+    def can_equip_item(self, item: Dict[str, Any]) -> tuple[bool, str]:
+        """Check whether an item can be equipped without violating simple slot rules."""
+        item_type = str(item.get("type", "")).lower()
+        item_name = str(item.get("name", "item"))
+        profile = self._get_item_profile(item)
+        min_strength = int(profile.get("min_strength", 0))
+        if self.has_status_effect("lost_hand") and (item_type == "shield" or item_type == "ranged_weapon" or item.get("two_handed")):
+            return False, f"{self.name} cannot equip {item_name} after losing a hand."
+        if self.has_status_effect("lost_leg") and (item_type == "shield" or item.get("two_handed")):
+            return False, f"{self.name} cannot equip {item_name} after losing a leg."
+        if item_type in {"weapon", "ranged_weapon"} and min_strength > 0 and self.get_effective_strength() < min_strength:
+            return False, f"{self.name} needs Strength {min_strength} to equip {item_name}."
+        if item_type in {"armour", "armor"}:
+            if not self.can_wear_armour():
+                return False, f"{self.name} cannot wear {item_name}."
+            for existing in self.equipment:
+                if existing is item:
+                    continue
+                if existing.get("equipped") and str(existing.get("type", "")).lower() in {"armour", "armor"}:
+                    existing_name = str(existing.get("name", "other armour"))
+                    return False, f"{self.name} is already wearing {existing_name}."
+        if item_type == "shield":
+            if not self.can_wear_armour():
+                return False, f"{self.name} cannot use {item_name}."
+            for existing in self.equipment:
+                if existing is item:
+                    continue
+                if existing.get("equipped") and str(existing.get("type", "")).lower() == "shield":
+                    existing_name = str(existing.get("name", "other shield"))
+                    return False, f"{self.name} is already using {existing_name}."
+        if item_type == "helm":
+            for existing in self.equipment:
+                if existing is item:
+                    continue
+                if existing.get("equipped") and str(existing.get("type", "")).lower() == "helm":
+                    existing_name = str(existing.get("name", "other helm"))
+                    return False, f"{self.name} is already wearing {existing_name}."
+        if item_type == "weapon":
+            for existing in self.equipment:
+                if existing is item:
+                    continue
+                if existing.get("equipped") and str(existing.get("type", "")).lower() == "weapon":
+                    existing["equipped"] = False
+        if item_type == "ranged_weapon":
+            for existing in self.equipment:
+                if existing is item:
+                    continue
+                if existing.get("equipped") and str(existing.get("type", "")).lower() == "ranged_weapon":
+                    existing["equipped"] = False
+        return True, ""
+
     def is_under_gm_control(self) -> bool:
         """Whether the hero is currently not under player control."""
-        return self.has_status_effect("madness")
+        return self.has_status_effect("madness") and not self.has_status_effect("madness_restrained")
+
+    def is_restrained_by_mindstealer(self) -> bool:
+        """Whether the hero is currently pinned to stop a Mindstealer frenzy."""
+        return self.has_status_effect("madness_restrained")
+
+    def has_pending_healing_potion(self) -> bool:
+        """Whether a healing potion will restore the hero at the start of the next turn."""
+        return self.has_status_effect("healing_potion_pending")
+
+    def queue_healing_potion_recovery(self, source: str = "Healing Potion"):
+        """Apply the delayed AHQ healing-potion recovery timing."""
+        self.add_status_effect(
+            "healing_potion_pending",
+            turns=1,
+            scope="turn",
+            source=source,
+            cannot_move=True,
+        )
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert hero to dictionary for saving."""
@@ -595,6 +917,17 @@ class Hero:
             "experience": self.experience,
             "total_pv": self.total_pv,
             "equipment": self.equipment,
+            "inventory": self.inventory,
+            "ammo": self.ammo,
+            "ammo_spent": self.ammo_spent,
+            "expeditions_completed": self.expeditions_completed,
+            "is_henchman": self.is_henchman,
+            "henchman_type": self.henchman_type,
+            "employer_id": self.employer_id,
+            "upkeep_cost": self.upkeep_cost,
+            "hire_cost": self.hire_cost,
+            "attracted_henchman": self.attracted_henchman,
+            "paid_spells_learned": self.paid_spells_learned,
             "is_dead": self.is_dead,
             "is_ko": self.is_ko,
             "trap_disarm_bonus": self.trap_disarm_bonus,
@@ -605,6 +938,9 @@ class Hero:
             "known_spells": self.known_spells,
             "spell_components": self.spell_components,
             "death_turn": self.death_turn,
+            "pending_fate_decision": self.pending_fate_decision,
+            "turn_wounds_snapshot": self.turn_wounds_snapshot,
+            "damage_taken_this_turn": self.damage_taken_this_turn,
         }
     
     @classmethod
@@ -628,6 +964,16 @@ class Hero:
             id=data.get("id"),
             known_spells=data.get("known_spells"),
             spell_components=data.get("spell_components"),
+            inventory=data.get("inventory"),
+            ammo=data.get("ammo"),
+            expeditions_completed=data.get("expeditions_completed", 0),
+            is_henchman=data.get("is_henchman", False),
+            henchman_type=data.get("henchman_type"),
+            employer_id=data.get("employer_id"),
+            upkeep_cost=data.get("upkeep_cost", 0),
+            hire_cost=data.get("hire_cost", 0),
+            attracted_henchman=data.get("attracted_henchman", False),
+            paid_spells_learned=data.get("paid_spells_learned", 0),
         )
         hero.current_wounds = data.get("current_wounds", hero.max_wounds)
         hero.current_fate = data.get("current_fate", hero.max_fate)
@@ -639,8 +985,13 @@ class Hero:
         hero.ko_turns = data.get("ko_turns", 0)
         hero.temp_fate_bonus = data.get("temp_fate_bonus", 0)
         hero.free_spell_cast = data.get("free_spell_cast", 0)
+        hero.ammo_spent = dict(data.get("ammo_spent", {"arrows": 0, "bolts": 0}))
         hero.status_effects = list(data.get("status_effects", []))
         hero.death_turn = data.get("death_turn")
+        pending_fate = data.get("pending_fate_decision")
+        hero.pending_fate_decision = dict(pending_fate) if isinstance(pending_fate, dict) else None
+        hero.turn_wounds_snapshot = int(data.get("turn_wounds_snapshot", hero.current_wounds))
+        hero.damage_taken_this_turn = int(data.get("damage_taken_this_turn", 0))
         return hero
     
     def __repr__(self):
@@ -739,6 +1090,66 @@ def roll_hero_race() -> str:
         return "Dwarf"
     else:
         return "Elf"
+
+
+def create_henchman(henchman_type: str, employer_id: Optional[str] = None, attracted: bool = False, name: Optional[str] = None) -> Hero:
+    """Create a rules-shaped henchman using final effective AHQ stats."""
+    kind = str(henchman_type).strip().lower().replace("-", "_").replace(" ", "_")
+    if kind == "man_at_arms":
+        return Hero(
+            name=name or "Man-at-Arms",
+            race="Human",
+            class_type="Warrior",
+            ws=7,
+            bs=6,
+            strength=6,
+            toughness=8,
+            speed=8,
+            bravery=7,
+            intelligence=5,
+            wounds=2,
+            fate=0,
+            gold=0,
+            equipment=[
+                {"name": "Sword", "key": "sword", "type": "weapon", "equipped": True},
+                {"name": "Leather Armour", "key": "leather_armour", "type": "armour", "equipped": True, "armour_value": 1, "bs_modifier": -1, "speed_modifier": -1},
+                {"name": "Shield", "key": "shield", "type": "shield", "equipped": True, "armour_value": 1, "bs_modifier": -1, "speed_modifier": 0},
+            ],
+            is_henchman=True,
+            henchman_type="man_at_arms",
+            employer_id=employer_id,
+            upkeep_cost=35,
+            hire_cost=0 if attracted else 50,
+            attracted_henchman=attracted,
+        )
+    if kind in {"sergeant", "rogue"}:
+        return Hero(
+            name=name or ("Rogue" if kind == "rogue" else "Sergeant"),
+            race="Human",
+            class_type="Warrior",
+            ws=8,
+            bs=7,
+            strength=6,
+            toughness=10,
+            speed=8,
+            bravery=8,
+            intelligence=6,
+            wounds=2,
+            fate=0,
+            gold=0,
+            equipment=[
+                {"name": "Sword", "key": "sword", "type": "weapon", "equipped": True},
+                {"name": "Chain Armour", "key": "chain_armour", "type": "armour", "equipped": True, "armour_value": 2, "bs_modifier": -1, "speed_modifier": -2},
+                {"name": "Shield", "key": "shield", "type": "shield", "equipped": True, "armour_value": 1, "bs_modifier": -1, "speed_modifier": 0},
+            ],
+            is_henchman=True,
+            henchman_type="rogue" if kind == "rogue" else "sergeant",
+            employer_id=employer_id,
+            upkeep_cost=75 if kind != "rogue" else 75,
+            hire_cost=100 if kind != "rogue" else 0,
+            attracted_henchman=attracted,
+        )
+    raise ValueError(f"Unknown henchman type: {henchman_type}")
 
 
 def roll_hero_stats(race: str) -> Dict[str, int]:

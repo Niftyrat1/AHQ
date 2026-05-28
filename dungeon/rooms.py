@@ -269,6 +269,7 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
     # Roll for room type
     from monster import roll_lair_encounter, roll_quest_room_encounter
     room_roll = random.randint(1, 12)
+    hazard_type = None
     if 7 <= room_roll <= 8:
         room_data['room_kind'] = 'hazard'
         room_data['hazard'] = roll_hazard_room()
@@ -325,8 +326,11 @@ def _place_room(dungeon: "Dungeon", door_x: int, door_y: int,
             dungeon._place_monster(monster_id, pos[0], pos[1])
         _place_room_chest(dungeon, room_data, occupied_tiles=available[:len(monster_ids)])
 
-    _add_room_exits(dungeon, start_x, start_y, total_width, total_height,
-                    door_x, door_y, entrance_dir)
+    if hazard_type != "trapdoor":
+        _add_room_exits(dungeon, start_x, start_y, total_width, total_height,
+                        door_x, door_y, entrance_dir)
+    if hazard_type == "chasm":
+        _ensure_chasm_far_side_door(dungeon, room_data, start_x, start_y, total_width, total_height, entrance_dir)
 
 
 def _add_room_exits(dungeon: "Dungeon", start_x: int, start_y: int,
@@ -390,3 +394,35 @@ def _add_room_exits(dungeon: "Dungeon", start_x: int, start_y: int,
         dungeon.doors[(door_x, door_y)] = {'is_open': False, 'from_room': True}
         dungeon._log(f"      Door at ({door_x}, {door_y})")
         exits_placed += 1
+
+
+def _ensure_chasm_far_side_door(
+    dungeon: "Dungeon",
+    room_data: dict,
+    start_x: int,
+    start_y: int,
+    total_width: int,
+    total_height: int,
+    entrance_dir: Tuple[int, int],
+):
+    """Ensure chasm hazards have the rulebook door on the far side."""
+    anchor = room_data.get("hazard_anchor")
+    if not isinstance(anchor, (list, tuple)) or len(anchor) != 2:
+        return
+    anchor_x, anchor_y = int(anchor[0]), int(anchor[1])
+
+    if entrance_dir == (1, 0):
+        door_pos = (start_x + total_width - 1, anchor_y)
+    elif entrance_dir == (-1, 0):
+        door_pos = (start_x, anchor_y)
+    elif entrance_dir == (0, 1):
+        door_pos = (anchor_x, start_y + total_height - 1)
+    else:
+        door_pos = (anchor_x, start_y)
+
+    if dungeon.get_tile(*door_pos) not in (dungeon.TileType.WALL, dungeon.TileType.DOOR_CLOSED, dungeon.TileType.DOOR_OPEN):
+        return
+    dungeon.grid[door_pos] = dungeon.TileType.DOOR_CLOSED
+    dungeon.doors[door_pos] = {'is_open': False, 'from_room': True}
+    room_data["hazard_far_side_door"] = [door_pos[0], door_pos[1]]
+    dungeon._log(f"      Chasm far-side door at ({door_pos[0]}, {door_pos[1]})")

@@ -28,7 +28,8 @@ class Monster:
         ranged: Optional[Dict] = None,
         spellcasting: Optional[Dict] = None,
         is_sentry: bool = False,
-        is_character: bool = False
+        is_character: bool = False,
+        special_rules: Optional[list[str]] = None,
     ):
         self.id = monster_id
         self.instance_id = f"{monster_id}_{random.randint(10000, 99999)}"
@@ -52,6 +53,7 @@ class Monster:
         self.weapons = weapons
         self.ranged = ranged
         self.spellcasting = dict(spellcasting or {})
+        self.special_rules = list(special_rules or [])
         
         # Flags
         self.is_sentry = is_sentry
@@ -67,21 +69,136 @@ class Monster:
     
     def get_damage_dice(self) -> int:
         """Get number of damage dice."""
+        return self.get_attack_damage_dice(0)
+
+    def get_attack_damage_dice(self, attack_index: int = 0) -> int:
+        """Get damage dice for a specific melee attack entry."""
         if self.weapons:
-            return self.weapons[0].get("damage_dice", 1)
+            idx = max(0, min(len(self.weapons) - 1, int(attack_index)))
+            return int(self.weapons[idx].get("damage_dice", 1))
         return 1
     
     def get_critical_threshold(self) -> int:
         """Get critical hit threshold."""
+        return self.get_attack_critical_threshold(0)
+
+    def get_attack_critical_threshold(self, attack_index: int = 0) -> int:
+        """Get critical threshold for a specific melee attack entry."""
         if self.weapons:
-            return self.weapons[0].get("critical", 12)
+            idx = max(0, min(len(self.weapons) - 1, int(attack_index)))
+            return int(self.weapons[idx].get("critical", 12))
         return 12
     
     def get_fumble_threshold(self) -> int:
         """Get fumble threshold."""
+        return self.get_attack_fumble_threshold(0)
+
+    def get_attack_fumble_threshold(self, attack_index: int = 0) -> int:
+        """Get fumble threshold for a specific melee attack entry."""
+        if self.has_special_rule("never_fumbles"):
+            return 0
         if self.weapons:
-            return self.weapons[0].get("fumble", 1)
+            idx = max(0, min(len(self.weapons) - 1, int(attack_index)))
+            return int(self.weapons[idx].get("fumble", 1))
         return 1
+
+    def has_special_rule(self, rule: str) -> bool:
+        """Check whether the monster has a named special rule."""
+        target = str(rule).strip().lower()
+        return any(str(current).strip().lower() == target for current in self.special_rules)
+
+    def is_large_monster(self) -> bool:
+        """Whether this monster uses the large-monster rules."""
+        return self.has_special_rule("large_monster")
+
+    def has_two_attacks(self) -> bool:
+        """Whether this monster makes two melee attacks."""
+        return self.has_special_rule("two_attacks")
+
+    def can_regenerate(self) -> bool:
+        """Whether this monster regenerates wounds each GM phase."""
+        return self.has_special_rule("regenerates")
+
+    def can_fly(self) -> bool:
+        """Whether this monster ignores death zones when moving."""
+        return self.has_special_rule("flight")
+
+    def is_fearsome(self) -> bool:
+        """Whether this monster causes fear in adjacent heroes."""
+        return self.has_special_rule("fearsome_monster")
+
+    def is_special_weapon_team(self) -> bool:
+        """Whether this monster is a paired specialist ranged team."""
+        monster_id = str(self.id).lower()
+        return any(token in monster_id for token in ("globadier", "warpfire", "jezzail"))
+
+    def get_support_offset(self) -> tuple[int, int]:
+        """Return the stored support-crew offset for a specialist team."""
+        offset = self.spellcasting.get("team_offset")
+        if isinstance(offset, (list, tuple)) and len(offset) == 2:
+            return int(offset[0]), int(offset[1])
+        return (-1, 0)
+
+    def set_support_offset(self, dx: int, dy: int):
+        """Persist the support-crew offset for a specialist team."""
+        self.spellcasting["team_offset"] = [int(dx), int(dy)]
+
+    def get_occupied_tiles(self) -> set[tuple[int, int]]:
+        """Return the board tiles occupied by this monster."""
+        if self.is_large_monster():
+            return {
+                (self.x, self.y),
+                (self.x - 1, self.y),
+                (self.x, self.y + 1),
+                (self.x - 1, self.y + 1),
+            }
+        if self.is_special_weapon_team():
+            dx, dy = self.get_support_offset()
+            return {
+                (self.x, self.y),
+                (self.x + dx, self.y + dy),
+            }
+        return {(self.x, self.y)}
+
+    def get_death_zone_tiles(self) -> set[tuple[int, int]]:
+        """Return the tiles threatened in melee by this monster."""
+        if self.is_large_monster():
+            return {
+                (self.x - 2, self.y),
+                (self.x - 2, self.y + 1),
+                (self.x + 1, self.y),
+                (self.x + 1, self.y + 1),
+                (self.x - 1, self.y - 1),
+                (self.x, self.y - 1),
+                (self.x - 1, self.y + 2),
+                (self.x, self.y + 2),
+            }
+        if self.is_special_weapon_team():
+            zone = set()
+            occupied = self.get_occupied_tiles()
+            for tile_x, tile_y in occupied:
+                zone.update({
+                    (tile_x + 1, tile_y),
+                    (tile_x - 1, tile_y),
+                    (tile_x, tile_y + 1),
+                    (tile_x, tile_y - 1),
+                })
+            zone.difference_update(occupied)
+            return zone
+        if any("halberd" in str(weapon.get("name", "")).lower() or "scythe" in str(weapon.get("name", "")).lower() for weapon in self.weapons):
+            zone = set()
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    zone.add((self.x + dx, self.y + dy))
+            return zone
+        return {
+            (self.x + 1, self.y),
+            (self.x - 1, self.y),
+            (self.x, self.y + 1),
+            (self.x, self.y - 1),
+        }
     
     def has_ranged(self) -> bool:
         """Check if monster has ranged attack."""
@@ -174,7 +291,8 @@ class Monster:
             ranged=data.get("ranged"),
             spellcasting=data.get("spellcasting"),
             is_sentry=data.get("is_sentry", False),
-            is_character=data.get("is_character", False)
+            is_character=data.get("is_character", False),
+            special_rules=data.get("special_rules", []),
         )
     
     def __repr__(self):
@@ -222,15 +340,15 @@ LAIR_ENCOUNTER_TABLE = {
     1: ["skaven_warrior", "skaven_warrior", "skaven_warrior"],
     2: ["skaven_warrior", "skaven_warrior", "skaven_champion"],
     3: ["skaven_warrior", "skaven_warrior", "skaven_warrior", "skaven_warrior"],
-    4: ["skaven_warrior", "skaven_warrior", "giant_rat", "giant_rat"],
+    4: ["skaven_warrior", "skaven_warrior", "skaven_sentry", "skaven_sentry"],
     5: ["skaven_champion", "skaven_warrior", "skaven_warrior"],
-    6: ["rat_ogre", "skaven_warrior"],
+    6: ["skaven_gutter_runner", "skaven_warrior", "skaven_warrior"],
     7: ["skaven_warrior", "skaven_warrior", "skaven_warrior", "skaven_warrior", "skaven_warrior"],
     8: ["skaven_champion", "skaven_champion"],
     9: ["skaven_warlord", "skaven_warrior", "skaven_warrior"],
-    10: ["skaven_warrior", "skaven_warrior", "skaven_warrior", "giant_rat", "giant_rat", "giant_rat"],
+    10: ["skaven_warrior", "skaven_warrior", "skaven_warrior", "skaven_gutter_runner", "skaven_night_runner"],
     11: ["clan_eshin_assassin", "skaven_warrior", "skaven_warrior"],
-    12: ["rat_ogre", "rat_ogre", "skaven_warrior"],
+    12: ["clan_pestilens_plague_censer_bearer", "skaven_champion", "skaven_warrior", "skaven_warrior"],
 }
 
 QUEST_ROOM_ENCOUNTER_TABLE = {
@@ -239,13 +357,13 @@ QUEST_ROOM_ENCOUNTER_TABLE = {
     3: ["clan_skyre_warpweaver", "skaven_warrior", "skaven_warrior", "skaven_warrior"],
     4: ["skaven_warlord", "skaven_champion", "skaven_champion", "skaven_warrior"],
     5: ["clan_eshin_assassin", "clan_eshin_assassin", "skaven_warrior"],
-    6: ["rat_ogre", "rat_ogre", "rat_ogre", "skaven_champion"],
+    6: ["clan_mors_warlord", "skaven_champion", "skaven_sentry", "skaven_warrior"],
     7: ["skaven_warlord", "skaven_warlord", "skaven_champion", "skaven_champion"],
     8: ["clan_pestilens_plague_monk", "clan_skyre_warpweaver", "skaven_champion", "skaven_warrior"],
     9: ["skaven_warlord", "clan_eshin_assassin", "skaven_champion", "skaven_warrior", "skaven_warrior"],
-    10: ["rat_ogre", "rat_ogre", "rat_ogre", "skaven_warlord"],
-    11: ["clan_pestilens_plague_monk", "clan_pestilens_plague_monk", "skaven_champion", "skaven_warrior", "skaven_warrior"],
-    12: ["skaven_warlord", "skaven_warlord", "clan_skyre_warpweaver", "skaven_champion", "skaven_champion"],
+    10: ["clan_skryre_white_skaven_sorcerer", "clan_skyre_warpweaver", "skaven_champion", "skaven_warrior"],
+    11: ["clan_pestilens_plague_monk", "clan_pestilens_plague_censer_bearer", "skaven_champion", "skaven_warrior", "skaven_warrior"],
+    12: ["skaven_warlord", "clan_skryre_white_skaven_sorcerer", "clan_eshin_assassin", "skaven_champion"],
 }
 
 

@@ -676,7 +676,7 @@ class Dungeon:
             if model_blockers and (x, y) in model_blockers:
                 if adjacent_friendly_blockers and (x, y) in adjacent_friendly_blockers:
                     continue
-                partial = True
+                return "blocked"
         return "partial" if partial else "clear"
     
     def _place_monster(self, monster_id: str, x: int, y: int):

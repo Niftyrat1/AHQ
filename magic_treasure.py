@@ -84,8 +84,8 @@ def _make_item(name: str, item_type: str, **fields: Any) -> Dict[str, Any]:
     return item
 
 
-def generate_magic_treasure(hero, log: List[str]) -> Dict[str, Any]:
-    """Generate one magic treasure item and add it to the hero."""
+def generate_magic_treasure(hero, log: List[str], game=None, source: str = "magic treasure", note_pos=None) -> Dict[str, Any]:
+    """Generate one magic treasure item and add it to the hero if it can be carried."""
     total, roll1, roll2 = _roll_2d12()
     category = _lookup_result(total, TOP_LEVEL_TABLE)
     log.append(f"Magic Treasure roll: {total} ({roll1}+{roll2}) -> {category.replace('_', ' ').title()}.")
@@ -239,6 +239,16 @@ def generate_magic_treasure(hero, log: List[str]) -> Dict[str, Any]:
             item = _make_item("Dwarven Armour", "armour", speed_modifier=0, bs_modifier=-2, armour_value=4)
         else:
             item = _make_item("Elven Armour", "armour", speed_modifier=-1, bs_modifier=0, armour_value=4)
+
+    limited_types = {"weapon", "ranged_weapon", "armour", "armor", "shield", "helm", "ring", "amulet"}
+    if item.get("type") in limited_types:
+        can_carry, reason = hero.can_carry_equipment_item(item)
+        if not can_carry:
+            if game is not None:
+                game._record_left_behind_treasure(source, note_pos, item=item)
+            log.append(f"{hero.name} cannot carry {item['name']}: {reason}")
+            log.append(f"{item['name']} is left behind on the expedition map.")
+            return item
 
     _add_item_to_hero(hero, item, log)
     log.append(f"{hero.name} receives {item['name']}.")

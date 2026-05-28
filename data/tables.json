@@ -70,6 +70,7 @@
       "display_name": "Spear",
       "type": "weapon",
       "cost": 10,
+      "min_strength": 3,
       "strength_damage": {"1-2": 0, "3-4": 1, "5": 2, "6": 3, "7": 4, "8": 5, "9": 6, "10": 7, "11": 8, "12": 9},
       "fumble": 1,
       "critical": 12,
@@ -79,6 +80,7 @@
       "display_name": "Sword",
       "type": "weapon",
       "cost": 25,
+      "min_strength": 3,
       "strength_damage": {"1-2": 0, "3-4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7, "10": 8, "11": 9, "12": 10},
       "fumble": 1,
       "critical": 12
@@ -87,6 +89,7 @@
       "display_name": "Axe",
       "type": "weapon",
       "cost": 25,
+      "min_strength": 3,
       "strength_damage": {"1-2": 0, "3-4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7, "10": 8, "11": 9, "12": 10},
       "fumble": 1,
       "critical": 12
@@ -95,6 +98,7 @@
       "display_name": "Warhammer",
       "type": "weapon",
       "cost": 25,
+      "min_strength": 3,
       "strength_damage": {"1-2": 0, "3-4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7, "10": 8, "11": 9, "12": 10},
       "fumble": 1,
       "critical": 12
@@ -103,6 +107,7 @@
       "display_name": "Halberd",
       "type": "weapon",
       "cost": 50,
+      "min_strength": 3,
       "strength_damage": {"1-2": 0, "3-4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7, "10": 8, "11": 9, "12": 10},
       "fumble": 2,
       "critical": 11,
@@ -113,6 +118,7 @@
       "display_name": "Double-Handed Sword",
       "type": "weapon",
       "cost": 50,
+      "min_strength": 6,
       "strength_damage": {"1-2": 0, "3-4": 0, "5": 0, "6": 5, "7": 6, "8": 7, "9": 8, "10": 9, "11": 10, "12": 11},
       "fumble": 2,
       "critical": 11,
@@ -123,6 +129,7 @@
       "display_name": "Double-Handed Axe",
       "type": "weapon",
       "cost": 50,
+      "min_strength": 6,
       "strength_damage": {"1-2": 0, "3-4": 0, "5": 0, "6": 5, "7": 6, "8": 7, "9": 8, "10": 9, "11": 10, "12": 11},
       "fumble": 2,
       "critical": 11,
@@ -267,12 +274,12 @@
       "increase_characteristic": {
         "display_name": "Increase a characteristic by 1 point",
         "cost": 200,
-        "implemented": false
+        "implemented": true
       },
       "increase_fate": {
         "display_name": "Increase Fate Points by 1 point",
         "cost": 1000,
-        "implemented": false
+        "implemented": true
       }
     },
     "armour": {
@@ -291,36 +298,36 @@
       "double_handed_sword": {"display_name": "Two-handed sword", "cost": 50, "implemented": true},
       "double_handed_axe": {"display_name": "Two-handed axe", "cost": 50, "implemented": true},
       "halberd": {"display_name": "Halberd", "cost": 50, "implemented": true},
-      "short_bow_bundle": {"display_name": "Short bow & 6 arrows", "cost": 20, "implemented": false},
-      "bow_bundle": {"display_name": "Bow & 6 arrows", "cost": 25, "implemented": false},
-      "long_bow_bundle": {"display_name": "Long bow & 6 arrows", "cost": 50, "implemented": false},
-      "arrows_bundle": {"display_name": "6 arrows", "cost": 10, "implemented": false},
-      "crossbow_bundle": {"display_name": "Crossbow & 6 bolts", "cost": 40, "implemented": false},
-      "crossbow_bolts_bundle": {"display_name": "6 crossbow bolts", "cost": 10, "implemented": false}
+      "short_bow_bundle": {"display_name": "Short bow & 6 arrows", "cost": 20, "implemented": true},
+      "bow_bundle": {"display_name": "Bow & 6 arrows", "cost": 25, "implemented": true},
+      "long_bow_bundle": {"display_name": "Long bow & 6 arrows", "cost": 50, "implemented": true},
+      "arrows_bundle": {"display_name": "6 arrows", "cost": 10, "implemented": true},
+      "crossbow_bundle": {"display_name": "Crossbow & 6 bolts", "cost": 40, "implemented": true},
+      "crossbow_bolts_bundle": {"display_name": "6 crossbow bolts", "cost": 10, "implemented": true}
     },
     "equipment": {
-      "rope_10ft": {"display_name": "10' rope", "cost": 5, "implemented": false},
-      "iron_spikes_10": {"display_name": "10 iron spikes", "cost": 10, "implemented": false},
-      "greek_fire_flask": {"display_name": "Greek Fire flask", "cost": 25, "implemented": false, "notes": "each"},
-      "rat_poison": {"display_name": "Rat Poison", "cost": 25, "implemented": false, "notes": "each"},
-      "screetch_bug": {"display_name": "Screetch Bug", "cost": 25, "implemented": false}
+      "rope_10ft": {"display_name": "10' rope", "cost": 5, "implemented": true},
+      "iron_spikes_10": {"display_name": "10 iron spikes", "cost": 10, "implemented": true},
+      "greek_fire_flask": {"display_name": "Greek Fire flask", "cost": 25, "implemented": true, "notes": "each"},
+      "rat_poison": {"display_name": "Rat Poison", "cost": 25, "implemented": true, "notes": "each"},
+      "screetch_bug": {"display_name": "Screetch Bug", "cost": 25, "implemented": true}
     },
     "spells": {
-      "courage": {"display_name": "Courage", "cost": 100, "implemented": false},
-      "flaming_hand_of_destruction": {"display_name": "Flaming Hand of Destruction", "cost": 175, "implemented": false},
-      "flight": {"display_name": "Flight", "cost": 100, "implemented": false},
-      "inferno_of_doom": {"display_name": "Inferno of Doom", "cost": 200, "implemented": false},
-      "power_of_the_phoenix": {"display_name": "Power of the Phoenix", "cost": 200, "implemented": false},
-      "still_air": {"display_name": "Still Air", "cost": 150, "implemented": false},
-      "swift_wind": {"display_name": "Swift Wind", "cost": 150, "implemented": false},
-      "the_bright_key": {"display_name": "The Bright Key", "cost": 250, "implemented": false},
-      "spell_component": {"display_name": "Spell Component", "cost": 25, "implemented": false}
+      "courage": {"display_name": "Courage", "cost": 100, "implemented": true},
+      "flaming_hand_of_destruction": {"display_name": "Flaming Hand of Destruction", "cost": 175, "implemented": true},
+      "flight": {"display_name": "Flight", "cost": 100, "implemented": true},
+      "inferno_of_doom": {"display_name": "Inferno of Doom", "cost": 200, "implemented": true},
+      "power_of_the_phoenix": {"display_name": "Power of the Phoenix", "cost": 200, "implemented": true},
+      "still_air": {"display_name": "Still Air", "cost": 150, "implemented": true},
+      "swift_wind": {"display_name": "Swift Wind", "cost": 150, "implemented": true},
+      "the_bright_key": {"display_name": "The Bright Key", "cost": 250, "implemented": true},
+      "spell_component": {"display_name": "Spell Component", "cost": 25, "implemented": true}
     },
     "healer": {
-      "remove_disease": {"display_name": "Remove disease", "cost": 100, "implemented": false},
-      "restore_lost_limb": {"display_name": "Restore lost limb", "cost": 500, "implemented": false},
-      "resurrect_dead_hero": {"display_name": "Resurrect dead Hero (need body)", "cost": 1000, "implemented": false},
-      "healing_potion": {"display_name": "Healing Potion", "cost": 50, "implemented": false}
+      "remove_disease": {"display_name": "Remove disease", "cost": 100, "implemented": true},
+      "restore_lost_limb": {"display_name": "Restore lost limb", "cost": 500, "implemented": true},
+      "resurrect_dead_hero": {"display_name": "Resurrect dead Hero (need body)", "cost": 1000, "implemented": true},
+      "healing_potion": {"display_name": "Healing Potion", "cost": 50, "implemented": true}
     }
   }
 }

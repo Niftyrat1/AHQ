@@ -16,9 +16,40 @@ The project now runs on `pygame-ce` by default via [main.py](F:\Agents\CascadePr
 ## Current Gaps
 
 - Solo rules are only partially implemented
-- Magic, richer room-feature treasure logic, henchmen, training, healer services, and broader between-expedition shopping are still missing
-- Between-expeditions systems and the full quest-book/solo content are not implemented
+- Henchmen, fuller treasure/economy flow, and some solo-fidelity edge cases are still missing
+- Between-expeditions systems now have a first tavern-service pass for training, healer actions, supplies/ammo, post-expedition gear buying, and wizard spell/component purchases, but they are not yet a full campaign layer
 - Several solo/AHQ fidelity issues still remain, especially around turn structure, dungeon counters, and equipment depth
+
+## Rules-First Execution Plan
+
+The repo now uses a `ledger-driven` completion plan.
+
+Source of truth:
+- [RULES_CONFORMANCE.md](F:\Agents\CascadeProjects\windsurf-project\AHQ\RULES_CONFORMANCE.md)
+
+Working rules:
+1. Only implement one coherent rules cluster at a time.
+2. Read only the exact cited rule lines for that cluster.
+3. Patch only the files needed for that cluster.
+4. Run targeted validation, not broad re-audits.
+5. Update the ledger immediately after each batch.
+
+The remaining issues are locked to this order:
+1. Fate full rules
+2. KO / carry / drag final conformance
+3. Gold carry cap
+4. Full item carry limits
+5. Missile recovery rolls
+6. Chest / hidden / leave-behind treasure handling
+7. Monster-carried loot full pass
+8. Henchmen system
+9. Between-expedition campaign loop
+10. Magic economy and learning
+11. Trap fidelity sweep
+12. Hazard fidelity sweep
+13. Exploration final audit
+14. Combat final audit
+15. Monster audit final pass
 
 ## Costs Table Status
 
@@ -27,16 +58,15 @@ The full AHQ campaign `Costs Table` from [Advanced HeroQuest.md](F:\Agents\Casca
 Implemented in the live game:
 - Core tavern purchase flow for combat equipment: melee weapons, ranged weapons, shields, and armour
 - AHQ combat-stat effects for the supported weapon and armour profiles
+- First between-expedition tavern services: training, Fate increase, healer services, expedition supplies, ammo bundles, post-expedition gear buying, and wizard spell/component purchasing
 
-Captured in data but not yet implemented in gameplay/UI:
-- Training costs
-- Spell purchases and spell components
-- Healer services
-- Rope, iron spikes, Greek Fire, Rat Poison, and Screetch Bug
-- Ammo-bundle purchasing and ammunition tracking
+Still partial or missing:
+- Gold carry-cap enforcement and the rulebook's cited carried-item category limits are now enforced; broader campaign/economy conformance still remains
+- Between-expedition summary/recovery flow now exists as a first pass, but henchmen management and fuller campaign handling are still missing
+- Broader post-expedition shop coverage and more polished tavern UX
 
 Known approximation:
-- The current tavern sells direct weapon profiles. The rulebook prices bows and crossbows as weapon-plus-ammo bundles, so the shop still needs an inventory/ammo pass to become fully rules-faithful.
+- The current tavern sells direct weapon profiles. The rulebook prices bows and crossbows as weapon-plus-ammo bundles, so the shop still remains an approximation even though ammo is now spent in play and recovered after victorious combats.
 
 ## Implementation Roadmap
 
@@ -61,9 +91,8 @@ Known approximation:
 - Continue replacing placeholder counter effects with rules-faithful outcomes as the trap/hazard systems land
 
 ### Phase C - Remaining Systems
-- Add magic and wizard spell management
-- Add treasure resolution, monster-carried treasure, and magic treasure
-- Add henchmen and between-expeditions systems
+- Tighten the new between-expedition systems into a full campaign layer: exact gold carry handling, deeper item-carry enforcement, richer summary/recovery flow, and henchmen
+- Add treasure resolution, monster-carried treasure, and remaining economy details
 - Add quest-specific and scripted solo content where procedural generation is not appropriate
 
 ### Phase D - Map And Screen Overhaul
@@ -79,6 +108,10 @@ Known approximation:
 - Add regression tests for dungeon generation, room state persistence, and combat edge cases
 - Document which AHQ solo rules are implemented, simplified, or intentionally deferred
 - Add a dedicated audit pass for monster stat fidelity, armour-adjusted monster profiles, and monster-carried equipment/treasure
+
+## Immediate Next Work
+
+Until the list above is exhausted, new feature work should not be started outside the numbered issues in [RULES_CONFORMANCE.md](F:\Agents\CascadeProjects\windsurf-project\AHQ\RULES_CONFORMANCE.md).
 
 ## Setup
 

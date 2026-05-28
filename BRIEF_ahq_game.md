@@ -22,19 +22,50 @@ The live codebase is an early playable vertical slice, not the full brief below.
 - Phase A correctness fixes for room persistence/reveal, BFS movement, and core combat edge cases
 - a `pygame-ce` frontend as the primary client, with older Tk files retained only as legacy reference code
 
-The live codebase does not yet fully implement the solo rules, the full turn structure, magic, training/healer services, non-weapon expedition gear, henchmen, or between-expeditions systems.
+The live codebase does not yet fully implement the solo rules, the full turn structure, henchmen, or the full between-expeditions campaign layer. A first tavern-service pass now exists for training, healer actions, supplies/ammo, post-expedition gear buying, and wizard spell/component purchases.
 
 ## Implementation Order
 
 The recommended implementation order is:
 
 1. Turn-structure alignment for exploration/combat under the solo rules
-2. Finish the campaign-economy layer around the AHQ `Costs Table`: training, healer services, spell purchases/components, expedition gear, and ammo bundles
+2. Finish the campaign-economy layer around the AHQ `Costs Table`: summary/recovery flow, carry limits, inventory usage, ammo consumption, and broader shop coverage on top of the new tavern-service backend
 3. Dungeon counters, traps, hazard-room interaction, status effects, treasure resolution, and non-weapon item usage
    Current hazard support now covers reveal-time wandering-monster/NPC/throne encounters plus interactive chasm, grate, pool, statue, mould, rats, bats, mushrooms, magic circle, trapdoor, rescued NPC follow-up, witch-escape handling, visible chest opening for lair/quest/chasm rooms, visible pit-leap actions, and liftable portcullises.
 4. Dungeon-screen overhaul: larger tiles, proper square artwork, real token/counter assets, and a minimap
 5. Magic, henchmen, and between-expeditions systems
 6. Quest-book and scripted solo content where procedural generation is not sufficient
+
+## Live Completion Plan
+
+The broad brief above now has a fixed live completion plan to minimise context cost and rule drift.
+
+Authoritative backlog:
+- [RULES_CONFORMANCE.md](F:\Agents\CascadeProjects\windsurf-project\AHQ\RULES_CONFORMANCE.md)
+
+Execution method:
+1. Work from `Missing` then `Partial` items in the ledger.
+2. Implement one small rule cluster at a time.
+3. Quote exact rule lines before coding.
+4. Touch only directly involved files.
+5. Update the ledger after each batch.
+
+Locked remaining order:
+1. Fate full rules
+2. KO / carry / drag final conformance
+3. Gold carry cap
+4. Full item carry limits
+5. Missile recovery rolls
+6. Chest / hidden / leave-behind treasure handling
+7. Monster-carried loot full pass
+8. Henchmen system
+9. Between-expedition campaign loop
+10. Magic economy and learning
+11. Trap fidelity sweep
+12. Hazard fidelity sweep
+13. Exploration final audit
+14. Combat final audit
+15. Monster audit final pass
 
 ## Visual Roadmap
 
@@ -58,7 +89,8 @@ The full AHQ `Costs Table` should live in [data/tables.json](F:\Agents\CascadePr
 
 Current implementation status:
 - Implemented: core combat equipment purchase and combat-stat application
-- Not yet implemented: training, healer, spell purchase, non-weapon expedition gear, ammo bundles, and inventory limits around those items
+- Partial: training, healer, spell purchase, non-weapon expedition gear, ammo bundles, spent-missile recovery after victorious combats, and a first expedition-summary screen
+- Not yet implemented: exact gold carry-cap handling, fuller item-carry enforcement, and the full between-expedition campaign loop
 - Future audit required: monster stat fidelity, armour-adjusted monster profiles, and monster-specific equipment/treasure
 
 ---

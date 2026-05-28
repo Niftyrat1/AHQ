@@ -12,7 +12,6 @@ import pygame
 
 from actions import get_available_actions
 from game import GameState
-from gm import find_path_bfs
 from hero import Hero, roll_hero_race, roll_hero_stats, roll_starting_gold
 from monster import Monster
 
@@ -110,6 +109,13 @@ class PygameApp:
         self.typing_target: Optional[str] = None
         self.pending_spell: Optional[Dict[str, Any]] = None
         self.movement_preview_hero_id: Optional[str] = None
+        self.summary_scroll_lines = 0
+        self.party_panel_scroll = 0
+        self.monster_panel_scroll = 0
+        self.tavern_roster_scroll = 0
+        self.tavern_service_scroll = 0
+        self.services_tab = "training"
+        self.inspect_hero_id: Optional[str] = None
         self.tables = self._load_tables()
 
         self._refresh_roster()
@@ -135,6 +141,56 @@ class PygameApp:
             "footer": footer,
         }
 
+    def _get_tavern_layout(self) -> Dict[str, pygame.Rect]:
+        width, height = self.screen.get_size()
+        panel_top = 72
+        panel_height = max(420, height - 124)
+        roster_width = min(560, max(360, int((width - 60) * 0.30)))
+        roster_rect = pygame.Rect(20, panel_top, roster_width, panel_height)
+        detail_rect = pygame.Rect(roster_rect.right + 20, panel_top, width - roster_rect.right - 40, panel_height)
+
+        controls_rect = pygame.Rect(detail_rect.x + 20, detail_rect.bottom - 94, detail_rect.width - 40, 74)
+        service_width = min(410, max(340, int(detail_rect.width * 0.48)))
+        service_rect = pygame.Rect(
+            detail_rect.right - service_width - 18,
+            detail_rect.y + 56,
+            service_width,
+            max(260, controls_rect.y - (detail_rect.y + 56) - 12),
+        )
+        left_col_width = max(220, service_rect.x - detail_rect.x - 36)
+        party_rect = pygame.Rect(detail_rect.x + 20, controls_rect.y - 82, left_col_width, 70)
+        detail_text_rect = pygame.Rect(
+            detail_rect.x + 20,
+            detail_rect.y + 56,
+            left_col_width,
+            max(160, party_rect.y - (detail_rect.y + 56) - 10),
+        )
+        roster_list_rect = pygame.Rect(roster_rect.x + 10, roster_rect.y + 60, roster_rect.width - 20, roster_rect.height - 72)
+
+        return {
+            "roster_rect": roster_rect,
+            "roster_list_rect": roster_list_rect,
+            "detail_rect": detail_rect,
+            "detail_text_rect": detail_text_rect,
+            "service_preview_rect": service_rect,
+            "party_rect": party_rect,
+            "service_rect": service_rect,
+            "controls_rect": controls_rect,
+        }
+
+    def _get_services_layout(self) -> Dict[str, pygame.Rect]:
+        width, height = self.screen.get_size()
+        panel_top = 72
+        panel_height = max(420, height - 124)
+        hero_rect = pygame.Rect(20, panel_top, min(420, max(320, int((width - 60) * 0.28))), panel_height)
+        service_rect = pygame.Rect(hero_rect.right + 20, panel_top, width - hero_rect.right - 40, panel_height)
+        hero_text_rect = pygame.Rect(hero_rect.x + 20, hero_rect.y + 56, hero_rect.width - 40, hero_rect.height - 76)
+        return {
+            "hero_rect": hero_rect,
+            "hero_text_rect": hero_text_rect,
+            "service_rect": service_rect,
+        }
+
     def _load_tables(self) -> Dict[str, Any]:
         tables_path = Path(__file__).resolve().parent.parent / "data" / "tables.json"
         if tables_path.exists():
@@ -157,6 +213,8 @@ class PygameApp:
         self.party_ids = [hero_id for hero_id in self.party_ids if hero_id in valid_ids]
         if self.selected_hero_id not in valid_ids:
             self.selected_hero_id = self.roster[0].id if self.roster else None
+        self.tavern_roster_scroll = 0
+        self.tavern_service_scroll = 0
 
     def _get_selected_hero(self) -> Optional[Hero]:
         source = self.game.party if self.current_screen == "dungeon" else self.roster
@@ -164,6 +222,16 @@ class PygameApp:
             if hero.id == self.selected_hero_id:
                 return hero
         return source[0] if source else None
+
+    def _get_inspected_hero(self) -> Optional[Hero]:
+        """Return the hero currently open in the character sheet overlay."""
+        if not self.inspect_hero_id:
+            return None
+        for source in (self.game.party, self.roster):
+            for hero in source:
+                if hero.id == self.inspect_hero_id:
+                    return hero
+        return None
 
     def _get_party_for_begin(self) -> List[Hero]:
         party_lookup = {hero.id: hero for hero in self.roster}
@@ -199,6 +267,8 @@ class PygameApp:
         hero = self._get_selected_hero()
         if hero is None or self.game.dungeon is None:
             return []
+        if self.game.has_pending_fate_decision():
+            return []
         if self.game.current_phase != "EXPLORATION":
             return []
         if self.game.hero_movement_remaining.get(hero.id, 0) <= 0:
@@ -221,6 +291,15 @@ class PygameApp:
         self.creation_state = None
         self.typing_target = None
         self.message = "Hero creation cancelled."
+
+    def _open_services_screen(self):
+        if self._get_selected_hero() is None:
+            self.message = "Select a hero first."
+            return
+        self.current_screen = "services"
+        self.tavern_service_scroll = 0
+        self.services_tab = "training"
+        self.message = "Between Expeditions opened."
 
     def _create_hero_from_modal(self):
         state = self.creation_state
@@ -281,11 +360,20 @@ class PygameApp:
 
     def _return_to_tavern(self):
         self.game._exit_dungeon()
-        self.current_screen = "tavern"
+        self.current_screen = "summary" if self.game.get_last_expedition_summary() else "tavern"
         self._refresh_roster()
         self.selected_hero_id = self.roster[0].id if self.roster else None
         self.movement_preview_hero_id = None
-        self.message = "Returned to the tavern."
+        self.summary_scroll_lines = 0
+        self.message = "Expedition complete." if self.current_screen == "summary" else "Returned to the tavern."
+
+    def _close_summary(self):
+        """Dismiss the expedition summary and return to the tavern roster."""
+        messages = self.game.finalize_between_expeditions()
+        self.current_screen = "tavern"
+        self.summary_scroll_lines = 0
+        self._refresh_roster()
+        self.message = " ".join(messages) if messages else "Returned to the tavern."
 
     def _delete_selected_hero(self):
         hero = self._get_selected_hero()
@@ -324,6 +412,9 @@ class PygameApp:
         hero = self._get_selected_hero()
         if hero is None or self.game.dungeon is None:
             return
+        if self.game.has_pending_fate_decision():
+            self.message = "Resolve the pending Fate decision first."
+            return
         if self.game.current_phase != "EXPLORATION":
             self.message = "That action can only be used during exploration."
             return
@@ -341,6 +432,9 @@ class PygameApp:
     def _activate_spell_cast(self, spell_option: Dict[str, Any]):
         hero = self._get_selected_hero()
         if hero is None:
+            return
+        if self.game.has_pending_fate_decision():
+            self.message = "Resolve the pending Fate decision first."
             return
         if str(spell_option.get("target_mode", "none")) == "none":
             _, message = self.game.cast_spell(
@@ -362,8 +456,77 @@ class PygameApp:
 
     def _end_phase(self):
         self.movement_preview_hero_id = None
+        if self.game.has_pending_fate_decision():
+            self.message = "Resolve the pending Fate decision first."
+            return
         self.game.end_hero_phase()
         self._pull_new_logs()
+
+    def _combat_run(self):
+        hero = self._get_selected_hero()
+        if hero is None:
+            return
+        self.message = self.game.hero_run(hero)
+        self._pull_new_logs()
+
+    def _prepare_ko_move(self):
+        hero = self._get_selected_hero()
+        if hero is None:
+            return
+        success, message = self.game.prepare_ko_move(hero)
+        self.message = message
+        if success:
+            self.movement_preview_hero_id = None
+
+    def _drink_healing_potion(self):
+        hero = self._get_selected_hero()
+        if hero is None:
+            return
+        self.message = self.game.drink_healing_potion(hero)
+        self._pull_new_logs()
+
+    def _give_healing_potion(self):
+        hero = self._get_selected_hero()
+        if hero is None:
+            return
+        self.message = self.game.give_healing_potion_to_ko(hero)
+        self._pull_new_logs()
+
+    def _restrain_mad_hero(self):
+        hero = self._get_selected_hero()
+        if hero is None:
+            return
+        self.message = self.game.restrain_mad_hero(hero)
+        self._pull_new_logs()
+
+    def _resolve_pending_fate(self, use_fate: bool):
+        self.message = self.game.resolve_pending_fate(use_fate)
+        self._pull_new_logs()
+
+    def _combat_open_adjacent_door(self):
+        hero = self._get_selected_hero()
+        if hero is None or self.game.dungeon is None:
+            return
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            tx, ty = hero.x + dx, hero.y + dy
+            if self.game.dungeon.get_tile(tx, ty) == self.game.dungeon.TileType.DOOR_CLOSED:
+                self.message = self.game.combat_open_door(hero, tx, ty)
+                self._pull_new_logs()
+                self._center_camera()
+                return
+        self.message = "No closed door adjacent."
+
+    def _combat_close_adjacent_door(self):
+        hero = self._get_selected_hero()
+        if hero is None or self.game.dungeon is None:
+            return
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            tx, ty = hero.x + dx, hero.y + dy
+            if self.game.dungeon.get_tile(tx, ty) == self.game.dungeon.TileType.DOOR_OPEN:
+                self.message = self.game.combat_close_door(hero, tx, ty)
+                self._pull_new_logs()
+                return
+        self.message = "No open door adjacent."
 
     def _go_down_stairs(self):
         if self.game.dungeon is None:
@@ -437,8 +600,11 @@ class PygameApp:
             if not hero.is_dead:
                 points.add((hero.x, hero.y))
         for monster in self.game.monsters:
-            if not monster.is_dead and dungeon.is_explored(monster.x, monster.y):
-                points.add((monster.x, monster.y))
+            if monster.is_dead:
+                continue
+            for mx, my in monster.get_occupied_tiles():
+                if dungeon.is_explored(mx, my):
+                    points.add((mx, my))
         if not points:
             return None
         xs = [x for x, _ in points]
@@ -562,12 +728,16 @@ class PygameApp:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self._handle_button_click(event.pos):
                     continue
+                if self.inspect_hero_id is not None:
+                    continue
                 if self.creation_state is not None:
                     continue
                 if self._handle_map_click(event.pos):
                     continue
                 if self.current_screen == "tavern":
                     self._handle_tavern_click(event.pos)
+                elif self.current_screen == "summary":
+                    continue
                 else:
                     self._handle_dungeon_click(event.pos)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button in (4, 5):
@@ -575,6 +745,38 @@ class PygameApp:
                 self._handle_mouse_wheel(event.pos, delta)
 
     def _handle_mouse_wheel(self, pos: Tuple[int, int], delta: int):
+        if self.current_screen == "summary":
+            self.summary_scroll_lines = max(0, self.summary_scroll_lines - delta)
+            return
+        if self.current_screen == "services":
+            hero = self._get_selected_hero()
+            if hero is not None:
+                service_rect = self._get_services_layout()["service_rect"]
+                if service_rect.collidepoint(pos):
+                    max_scroll = max(0, self._get_tavern_service_content_height(hero, service_rect) - service_rect.height)
+                    self.tavern_service_scroll = max(0, min(max_scroll, self.tavern_service_scroll - delta * 24))
+            return
+        if self.current_screen == "tavern":
+            tavern_layout = self._get_tavern_layout()
+            if tavern_layout["roster_list_rect"].collidepoint(pos):
+                visible_rows = max(1, tavern_layout["roster_list_rect"].height // 32)
+                max_scroll = max(0, len(self.roster) - visible_rows)
+                self.tavern_roster_scroll = max(0, min(max_scroll, self.tavern_roster_scroll - delta))
+                return
+            if tavern_layout["service_rect"].collidepoint(pos):
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    max_scroll = max(0, self._get_tavern_service_content_height(hero, tavern_layout["service_rect"]) - tavern_layout["service_rect"].height)
+                    self.tavern_service_scroll = max(0, min(max_scroll, self.tavern_service_scroll - delta * 24))
+                return
+        if self.current_screen == "dungeon":
+            sections = self._get_left_section_rects()
+            if sections["party"].collidepoint(pos):
+                self.party_panel_scroll = max(0, self.party_panel_scroll - delta)
+                return
+            if sections["monsters"].collidepoint(pos):
+                self.monster_panel_scroll = max(0, self.monster_panel_scroll - delta)
+                return
         if self.current_screen != "dungeon" or self.creation_state is not None or self.map_overlay_open:
             return
         log_rect = self._get_log_rect(self._layout()["right_panel"])
@@ -595,6 +797,21 @@ class PygameApp:
                     self.creation_state.name += event.unicode
             return
 
+        if self.current_screen == "summary":
+            if event.key in (pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_SPACE):
+                self._close_summary()
+            return
+
+        if self.current_screen == "services":
+            if event.key == pygame.K_ESCAPE:
+                self.current_screen = "tavern"
+                self.message = "Returned to the tavern."
+            return
+
+        if self.inspect_hero_id is not None and event.key == pygame.K_ESCAPE:
+            self.inspect_hero_id = None
+            return
+
         if self.current_screen == "tavern":
             if event.key == pygame.K_c:
                 self._open_creation_modal()
@@ -604,6 +821,8 @@ class PygameApp:
                 self._add_selected_to_party()
             elif event.key == pygame.K_r:
                 self._remove_selected_from_party()
+            elif event.key == pygame.K_b:
+                self._open_services_screen()
             elif event.key == pygame.K_RETURN:
                 self._begin_quest()
             elif event.key == pygame.K_ESCAPE:
@@ -632,6 +851,9 @@ class PygameApp:
             elif self.pending_spell is not None:
                 self.pending_spell = None
                 self.message = "Spell targeting cancelled."
+            elif self.game.pending_board_action is not None:
+                self.game.pending_board_action = None
+                self.message = "Targeted action cancelled."
             else:
                 self._return_to_tavern()
 
@@ -667,8 +889,38 @@ class PygameApp:
                 self._add_selected_to_party()
             elif button.action == "remove_party":
                 self._remove_selected_from_party()
+            elif button.action == "open_sheet":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.inspect_hero_id = hero.id
+            elif button.action == "open_services":
+                self._open_services_screen()
+            elif button.action == "close_services":
+                self.current_screen = "tavern"
+                self.message = "Returned to the tavern."
+            elif button.action == "services_tab":
+                self.services_tab = str(button.payload)
+                self.tavern_service_scroll = 0
             elif button.action == "end_phase":
                 self._end_phase()
+            elif button.action == "combat_run":
+                self._combat_run()
+            elif button.action == "combat_open_door":
+                self._combat_open_adjacent_door()
+            elif button.action == "combat_close_door":
+                self._combat_close_adjacent_door()
+            elif button.action == "prepare_ko_move":
+                self._prepare_ko_move()
+            elif button.action == "drink_healing_potion":
+                self._drink_healing_potion()
+            elif button.action == "give_healing_potion":
+                self._give_healing_potion()
+            elif button.action == "restrain_mad_hero":
+                self._restrain_mad_hero()
+            elif button.action == "fate_spend":
+                self._resolve_pending_fate(True)
+            elif button.action == "fate_refuse":
+                self._resolve_pending_fate(False)
             elif button.action == "return_tavern":
                 self._return_to_tavern()
             elif button.action == "action":
@@ -677,6 +929,12 @@ class PygameApp:
                 self._activate_spell_cast(dict(button.payload))
             elif button.action == "toggle_map":
                 self._toggle_map_overlay()
+            elif button.action == "summary_continue":
+                self._close_summary()
+            elif button.action == "close_sheet":
+                self.inspect_hero_id = None
+            elif button.action == "toggle_item":
+                self._toggle_inspected_item(int(button.payload))
             elif button.action == "creation_roll_race":
                 self.creation_state.race = roll_hero_race()
                 self.message = f"Race rolled: {self.creation_state.race}."
@@ -702,11 +960,74 @@ class PygameApp:
                 self._create_hero_from_modal()
             elif button.action == "creation_buy_item":
                 self._buy_creation_item(str(button.payload))
+            elif button.action == "tavern_train":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_train_hero(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_fate":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_increase_fate(hero)
+                    self._refresh_roster()
+            elif button.action == "tavern_buy_equipment":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_buy_equipment(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_buy_supply":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_buy_supply(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_buy_ammo":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_buy_ammo(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_buy_spell":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_buy_spell(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_buy_component":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_buy_spell_component(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_deposit_gold":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_deposit_gold(hero)
+                    self._refresh_roster()
+            elif button.action == "tavern_withdraw_gold":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_withdraw_gold(hero)
+                    self._refresh_roster()
+            elif button.action == "tavern_hire_henchman":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_hire_henchman(hero, str(button.payload))
+                    self._refresh_roster()
+            elif button.action == "tavern_swap_sergeant":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_swap_henchmen_for_sergeant(hero)
+                    self._refresh_roster()
+            elif button.action == "tavern_healer":
+                hero = self._get_selected_hero()
+                if hero is not None:
+                    self.message = self.game.tavern_use_healer(hero, str(button.payload))
+                    self._refresh_roster()
             return True
         return False
 
     def _get_equipment_table(self) -> Dict[str, Dict[str, Any]]:
         return self.tables.get("equipment", {})
+
+    def _get_cost_entry(self, section: str, key: str) -> Dict[str, Any]:
+        return dict(self.tables.get("costs_table", {}).get(section, {}).get(key, {}))
 
     def _creation_has_item(self, item_key: str) -> bool:
         state = self.creation_state
@@ -777,6 +1098,12 @@ class PygameApp:
         if cost > state.gold:
             self.message = f"Not enough gold for {item['name']}."
             return
+        min_strength = int(item.get("min_strength", 0))
+        if item.get("type") in {"weapon", "ranged_weapon"} and min_strength > 0:
+            rolled_strength = int((state.stats or {}).get("strength", 0))
+            if rolled_strength < min_strength:
+                self.message = f"{item['name']} needs Strength {min_strength}."
+                return
 
         state.gold -= cost
         state.equipment = list(state.equipment or [])
@@ -800,18 +1127,45 @@ class PygameApp:
         self.message = f"Bought {item['name']} for {cost} gc."
 
     def _handle_tavern_click(self, pos: Tuple[int, int]):
-        roster_x = 30
-        roster_y = 136
+        layout = self._get_tavern_layout()
+        roster_rect = layout["roster_list_rect"]
+        roster_x = roster_rect.x
+        roster_y = roster_rect.y
         row_h = 32
-        for idx, hero in enumerate(self.roster):
-            rect = pygame.Rect(roster_x, roster_y + idx * row_h, 540, 29)
+        visible_rows = max(1, roster_rect.height // row_h)
+        start = min(self.tavern_roster_scroll, max(0, len(self.roster) - visible_rows))
+        for idx, hero in enumerate(self.roster[start:start + visible_rows + 1]):
+            rect = pygame.Rect(roster_x, roster_y + idx * row_h, roster_rect.width, 29)
             if rect.collidepoint(pos):
                 self.selected_hero_id = hero.id
                 self.movement_preview_hero_id = None
+                self.tavern_service_scroll = 0
                 return
+
+    def _handle_party_panel_click(self, pos: Tuple[int, int]) -> bool:
+        """Select and inspect heroes from the dungeon-side party panel."""
+        sections = self._get_left_section_rects()
+        panel_rect = sections["party"]
+        if not panel_rect.collidepoint(pos):
+            return False
+        content_rect = panel_rect.inflate(-8, -38)
+        row_height = 98
+        local_y = pos[1] - (content_rect.y + 4)
+        if local_y < 0:
+            return True
+        index = (local_y + self.party_panel_scroll * row_height) // row_height
+        living_party = list(self.game.party)
+        if 0 <= index < len(living_party):
+            hero = living_party[int(index)]
+            self.selected_hero_id = hero.id
+            self.inspect_hero_id = hero.id
+            self.message = f"{hero.name} inspected."
+        return True
 
     def _handle_dungeon_click(self, pos: Tuple[int, int]):
         self.game.ensure_phase_consistency()
+        if self._handle_party_panel_click(pos):
+            return
         grid_pos = self._screen_to_grid(*pos)
         if grid_pos is None or self.game.dungeon is None:
             return
@@ -821,6 +1175,10 @@ class PygameApp:
             return
 
         gx, gy = grid_pos
+
+        if self.game.has_pending_fate_decision():
+            self.message = "Resolve the pending Fate decision first."
+            return
 
         if self.pending_spell is not None:
             success, message = self.game.cast_spell(
@@ -836,6 +1194,12 @@ class PygameApp:
                 self.pending_spell = None
                 self._pull_new_logs()
                 self._center_camera()
+            return
+
+        if self.game.pending_board_action is not None:
+            self.message = self.game.resolve_pending_board_action(hero, gx, gy)
+            self._pull_new_logs()
+            self._center_camera()
             return
 
         for party_hero in self.game.party:
@@ -855,7 +1219,17 @@ class PygameApp:
         starting_stairs = {(0, 0), (1, 0), (0, 1), (1, 1)}
         if tile == self.game.dungeon.TileType.DOOR_CLOSED:
             if self.game.dungeon.is_adjacent(hero.x, hero.y, gx, gy):
-                self.game.open_door(gx, gy)
+                if self.game.current_phase == "COMBAT":
+                    self.message = self.game.combat_open_door(hero, gx, gy)
+                else:
+                    self.game.open_door(gx, gy)
+                self._pull_new_logs()
+            else:
+                self.message = "Stand adjacent to the door."
+            return
+        if tile == self.game.dungeon.TileType.DOOR_OPEN and self.game.current_phase == "COMBAT":
+            if self.game.dungeon.is_adjacent(hero.x, hero.y, gx, gy):
+                self.message = self.game.combat_close_door(hero, gx, gy)
                 self._pull_new_logs()
             else:
                 self.message = "Stand adjacent to the door."
@@ -883,7 +1257,7 @@ class PygameApp:
 
     def _get_monster_at(self, x: int, y: int) -> Optional[Monster]:
         for monster in self.game.monsters:
-            if not monster.is_dead and (monster.x, monster.y) == (x, y):
+            if not monster.is_dead and (x, y) in monster.get_occupied_tiles():
                 return monster
         return None
 
@@ -895,8 +1269,14 @@ class PygameApp:
         self._draw_top_bar()
         if self.current_screen == "tavern":
             self._draw_tavern()
+        elif self.current_screen == "services":
+            self._draw_tavern_services()
+        elif self.current_screen == "summary":
+            self._draw_summary()
         else:
             self._draw_dungeon()
+        if self.inspect_hero_id is not None:
+            self._draw_character_sheet_overlay()
         if self.creation_state is not None:
             self._draw_creation_modal()
         self._draw_footer()
@@ -906,7 +1286,11 @@ class PygameApp:
         pygame.draw.rect(self.screen, PANEL, rect, border_radius=8)
         pygame.draw.rect(self.screen, PANEL_ALT, rect, 1, border_radius=8)
         if self.current_screen == "tavern":
-            title = "Advanced HeroQuest | Tavern | C Create | A Add | R Remove | Enter Begin"
+            title = "Advanced HeroQuest | Tavern | C Create | A Add | R Remove | B Between Expeditions | Enter Begin"
+        elif self.current_screen == "services":
+            title = "Advanced HeroQuest | Between Expeditions | Esc Back"
+        elif self.current_screen == "summary":
+            title = "Advanced HeroQuest | Expedition Summary | Enter Continue"
         else:
             title = (
                 f"Advanced HeroQuest | {self.game.current_phase} | "
@@ -923,6 +1307,244 @@ class PygameApp:
                 color=PURPLE,
                 small=True,
             )
+
+    def _draw_summary(self):
+        summary = self.game.get_last_expedition_summary() or {}
+        panel = pygame.Rect(140, 100, self.window_width - 280, self.window_height - 180)
+        self._draw_panel(panel, "Expedition Summary")
+        inner = panel.inflate(-24, -60)
+
+        lines: List[str] = [
+            f"Gold found: {summary.get('gold_found', 0)} gc",
+            f"Experience gained: {summary.get('experience_gained', 0)} PV",
+            "",
+            f"Survivors: {', '.join(summary.get('survivors', [])) or 'None'}",
+            f"Fallen: {', '.join(summary.get('fallen', [])) or 'None'}",
+        ]
+        followers = summary.get("followers", [])
+        if followers:
+            lines.append("")
+            lines.append("Followers:")
+            lines.extend(f"  - {entry}" for entry in followers)
+        ammo = summary.get("ammo", {})
+        if ammo:
+            lines.append("")
+            lines.append("Missiles carried out:")
+            for hero_name, counts in ammo.items():
+                arrows = int(counts.get("arrows", 0))
+                bolts = int(counts.get("bolts", 0))
+                lines.append(f"  - {hero_name}: arrows {arrows}, bolts {bolts}")
+        left_behind = summary.get("left_behind_treasure", [])
+        if left_behind:
+            lines.append("")
+            lines.append("Left behind in the dungeon:")
+            for entry in left_behind:
+                pos = entry.get("pos")
+                where = f" at ({pos[0]}, {pos[1]})" if isinstance(pos, list) and len(pos) == 2 else ""
+                if int(entry.get("gold", 0)) > 0:
+                    lines.append(f"  - {int(entry.get('gold', 0))} gc{where}")
+                elif isinstance(entry.get("item"), dict):
+                    lines.append(f"  - {entry['item'].get('name', 'Item')}{where}")
+                elif entry.get("supply_key"):
+                    lines.append(f"  - {str(entry.get('supply_key')).replace('_', ' ')}{where}")
+                elif entry.get("ammo_type"):
+                    lines.append(f"  - {int(entry.get('ammo_count', 0))} {entry.get('ammo_type')}{where}")
+        messages = summary.get("messages", [])
+        if messages:
+            lines.append("")
+            lines.append("Notes:")
+            lines.extend(f"  - {entry}" for entry in messages)
+
+        visible_lines = max(8, inner.height // 24)
+        max_scroll = max(0, len(lines) - visible_lines)
+        self.summary_scroll_lines = min(self.summary_scroll_lines, max_scroll)
+        start = self.summary_scroll_lines
+        y = inner.y
+        for line in lines[start:start + visible_lines]:
+            self.screen.blit(self.font.render(line, True, TEXT), (inner.x, y))
+            y += 24
+
+        self._draw_button(
+            pygame.Rect(panel.right - 190, panel.bottom - 44, 170, 30),
+            "Continue To Tavern",
+            "summary_continue",
+            color=GREEN,
+            small=True,
+        )
+
+    def _toggle_inspected_item(self, item_index: int):
+        """Toggle one inspected hero item on or off."""
+        hero = self._get_inspected_hero()
+        if hero is None or not (0 <= item_index < len(hero.equipment)):
+            self.message = "No item selected."
+            return
+        item = hero.equipment[item_index]
+        item_name = str(item.get("name", "item"))
+        item_type = str(item.get("type", "")).lower()
+        if self.current_screen == "dungeon" and item_type in {"armour", "armor", "shield", "helm"}:
+            if self.game.current_phase != "EXPLORATION":
+                self.message = "Armour can only be changed during exploration."
+                return
+            remaining, _ = self._get_hero_status(hero.id)
+            if remaining <= 0:
+                self.message = f"{hero.name} has no actions left this phase."
+                return
+        if item.get("equipped"):
+            item["equipped"] = False
+            if self.current_screen == "dungeon" and item_type in {"armour", "armor", "shield", "helm"}:
+                self.game.hero_movement_remaining[hero.id] = 0
+            self.message = f"{hero.name} removes {item_name}."
+        else:
+            can_equip, reason = hero.can_equip_item(item)
+            if not can_equip:
+                self.message = reason
+                return
+            item["equipped"] = True
+            if self.current_screen == "dungeon" and item_type in {"armour", "armor", "shield", "helm"}:
+                self.game.hero_movement_remaining[hero.id] = 0
+            self.message = f"{hero.name} equips {item_name}."
+        self.game.hero_manager.update_hero(hero)
+        if self.current_screen == "dungeon":
+            self.game.save_game()
+
+    def _describe_item_effects(self, item: Dict[str, Any]) -> List[str]:
+        """Return short human-readable effect lines for equipment and treasure."""
+        parts: List[str] = []
+        item_type = str(item.get("type", "")).lower()
+        armour_value = int(item.get("armour_value", 0) or 0)
+        bs_modifier = int(item.get("bs_modifier", 0) or 0)
+        speed_modifier = int(item.get("speed_modifier", 0) or 0)
+        ws_bonus = int(item.get("ws_bonus", 0) or 0)
+        strength_bonus = int(item.get("strength_bonus", 0) or 0)
+        max_range = int(item.get("max_range", 0) or 0)
+        min_strength = item.get("min_strength")
+
+        if armour_value:
+            parts.append(f"Armour +{armour_value}")
+        if bs_modifier:
+            parts.append(f"BS {bs_modifier:+d}")
+        if speed_modifier:
+            parts.append(f"Sp {speed_modifier:+d}")
+        if ws_bonus:
+            parts.append(f"WS +{ws_bonus}")
+        if strength_bonus:
+            parts.append(f"S +{strength_bonus}")
+        if item.get("long_reach"):
+            parts.append("Long reach")
+        if item.get("two_handed"):
+            parts.append("Two-handed")
+        if item_type == "ranged_weapon":
+            if max_range:
+                parts.append(f"Range {max_range}")
+            if min_strength:
+                parts.append(f"Min S {min_strength}")
+            if item.get("requires_reload"):
+                parts.append("Reload")
+            if item.get("move_and_fire"):
+                parts.append("Move+fire")
+            else:
+                parts.append("Stand to fire")
+        elif item_type == "weapon":
+            if isinstance(item.get("strength_damage"), dict):
+                parts.append("Strength damage table")
+            elif item.get("damage_dice"):
+                parts.append(f"Damage {item.get('damage_dice')}")
+            if min_strength:
+                parts.append(f"Min S {min_strength}")
+        if item.get("spell_protection"):
+            parts.append("Spell protection")
+        if item.get("wizard_only"):
+            parts.append("Wizard only")
+
+        lines: List[str] = []
+        if parts:
+            lines.append(", ".join(parts[:4]))
+            if len(parts) > 4:
+                lines.append(", ".join(parts[4:8]))
+        notes = str(item.get("notes", "")).strip()
+        if notes:
+            lines.append(notes)
+        return lines or ["No special effect."]
+
+    def _draw_character_sheet_overlay(self):
+        """Draw a detailed character sheet overlay for the inspected hero."""
+        hero = self._get_inspected_hero()
+        if hero is None:
+            self.inspect_hero_id = None
+            return
+        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        overlay.fill(OVERLAY)
+        self.screen.blit(overlay, (0, 0))
+        rect = pygame.Rect(140, 90, self.window_width - 280, self.window_height - 180)
+        pygame.draw.rect(self.screen, PANEL, rect, border_radius=10)
+        pygame.draw.rect(self.screen, PANEL_ALT, rect, 1, border_radius=10)
+        self.screen.blit(self.big_font.render(hero.name, True, TEXT), (rect.x + 20, rect.y + 16))
+        self.screen.blit(self.small_font.render(f"{hero.race} {hero.class_type}", True, MUTED), (rect.x + 24, rect.y + 54))
+        self._draw_button(
+            pygame.Rect(rect.right - 94, rect.y + 16, 74, 28),
+            "Close",
+            "close_sheet",
+            color=RED,
+            small=True,
+        )
+
+        left_x = rect.x + 24
+        top_y = rect.y + 92
+        info_lines = [
+            f"WS {hero.get_effective_ws()}",
+            f"BS {hero.get_effective_bs()}",
+            f"S {hero.get_effective_strength()}",
+            f"T {hero.get_effective_toughness()}",
+            f"Sp {hero.get_effective_speed('exploration')}",
+            f"W {hero.current_wounds}/{hero.max_wounds}",
+            f"F {hero.current_fate}/{hero.max_fate}",
+            f"Gold {hero.gold}",
+        ]
+        for idx, line in enumerate(info_lines):
+            self.screen.blit(self.font.render(line, True, TEXT), (left_x, top_y + idx * 24))
+
+        right_x = rect.x + rect.width // 2
+        self.screen.blit(self.font.render("Equipment", True, ACCENT), (right_x, top_y))
+        equip_y = top_y + 28
+        row_height = 50
+        for idx, item in enumerate(hero.equipment[:8]):
+            equipped = bool(item.get("equipped"))
+            label = f"{'[W]' if equipped else '[ ]'} {item.get('name', 'Unknown')}"
+            row_y = equip_y + idx * row_height
+            self.screen.blit(self.small_font.render(label, True, TEXT), (right_x, row_y))
+            for line_idx, effect_line in enumerate(self._describe_item_effects(item)[:2]):
+                self.screen.blit(self.small_font.render(effect_line, True, MUTED), (right_x + 18, row_y + 18 + line_idx * 16))
+            self._draw_button(
+                pygame.Rect(right_x + 280, row_y - 2, 92, 24),
+                "Remove" if equipped else "Equip",
+                "toggle_item",
+                payload=idx,
+                small=True,
+                color=PURPLE if equipped else BLUE,
+            )
+
+        extra_y = rect.bottom - 180
+        self.screen.blit(self.font.render("Supplies", True, ACCENT), (left_x, extra_y))
+        supply_lines: List[str] = []
+        for key, count in sorted(hero.inventory.items()):
+            if count > 0:
+                supply_lines.append(f"{key} x{count}")
+        if hero.ammo.get("arrows", 0):
+            supply_lines.append(f"Arrows x{hero.ammo['arrows']}")
+        if hero.ammo.get("bolts", 0):
+            supply_lines.append(f"Bolts x{hero.ammo['bolts']}")
+        if not supply_lines:
+            supply_lines.append("None")
+        for idx, line in enumerate(supply_lines[:6]):
+            self.screen.blit(self.small_font.render(line, True, TEXT), (left_x, extra_y + 28 + idx * 20))
+
+        status_x = rect.x + rect.width // 2
+        self.screen.blit(self.font.render("Status", True, ACCENT), (status_x, extra_y))
+        status_lines = [effect.get("name", "?") for effect in hero.status_effects] or ["OK"]
+        if hero.has_pending_fate_decision():
+            status_lines.insert(0, "pending_fate")
+        for idx, line in enumerate(status_lines[:6]):
+            self.screen.blit(self.small_font.render(line, True, TEXT), (status_x, extra_y + 28 + idx * 20))
 
     def _draw_panel(self, rect: pygame.Rect, title: str):
         pygame.draw.rect(self.screen, PANEL, rect, border_radius=8)
@@ -981,19 +1603,29 @@ class PygameApp:
         return clipped + ellipsis if clipped else ellipsis
 
     def _draw_tavern(self):
-        roster_rect = pygame.Rect(20, 72, 560, 810)
-        detail_rect = pygame.Rect(600, 72, 860, 810)
+        tavern_layout = self._get_tavern_layout()
+        roster_rect = tavern_layout["roster_rect"]
+        roster_list_rect = tavern_layout["roster_list_rect"]
+        detail_rect = tavern_layout["detail_rect"]
+        detail_text_rect = tavern_layout["detail_text_rect"]
+        service_preview_rect = tavern_layout["service_preview_rect"]
+        party_rect = tavern_layout["party_rect"]
+        controls_rect = tavern_layout["controls_rect"]
         self._draw_panel(roster_rect, "Hero Roster")
         self._draw_panel(detail_rect, "Hero Details")
 
         self.screen.blit(
             self.small_font.render("Select a hero from the roster, then use the buttons below.", True, MUTED),
-            (36, 108),
+            (roster_rect.x + 16, roster_rect.y + 36),
         )
 
-        roster_y = 136
-        for idx, hero in enumerate(self.roster):
-            row_rect = pygame.Rect(30, roster_y + idx * 32, 540, 29)
+        row_h = 32
+        visible_rows = max(1, roster_list_rect.height // row_h)
+        max_scroll = max(0, len(self.roster) - visible_rows)
+        self.tavern_roster_scroll = min(self.tavern_roster_scroll, max_scroll)
+        self.screen.set_clip(roster_list_rect)
+        for idx, hero in enumerate(self.roster[self.tavern_roster_scroll:self.tavern_roster_scroll + visible_rows + 1]):
+            row_rect = pygame.Rect(roster_list_rect.x, roster_list_rect.y + idx * row_h, roster_list_rect.width, 29)
             selected = hero.id == self.selected_hero_id
             in_party = hero.id in self.party_ids
             fill = (64, 95, 75) if in_party else PANEL_ALT
@@ -1005,33 +1637,172 @@ class PygameApp:
                 f"WS {hero.ws:2} W {hero.current_wounds}/{hero.max_wounds} F {hero.current_fate}"
             )
             self.screen.blit(self.small_font.render(label, True, TEXT), (row_rect.x + 8, row_rect.y + 6))
+        self.screen.set_clip(None)
+        if max_scroll > 0:
+            self._draw_scrollbar_for_content(roster_list_rect, self.tavern_roster_scroll, max_scroll)
 
         selected = self._get_selected_hero()
         if selected is not None:
-            self._draw_hero_detail(selected, detail_rect.x + 20, detail_rect.y + 56)
+            self._draw_hero_detail(selected, detail_text_rect)
+            self._draw_tavern_service_preview(selected, service_preview_rect)
         else:
             self.screen.blit(self.font.render("No hero selected.", True, TEXT), (detail_rect.x + 20, detail_rect.y + 64))
 
         party = self._get_party_for_begin()
-        party_y = 676
-        self.screen.blit(self.font.render(f"Party {len(party)}/4", True, ACCENT), (620, party_y))
+        self.screen.blit(self.font.render(f"Party {len(party)}/4", True, ACCENT), (party_rect.x, party_rect.y))
         for idx, hero in enumerate(party):
-            self.screen.blit(self.small_font.render(f"- {hero.name} ({hero.race} {hero.class_type})", True, TEXT), (620, party_y + 28 + idx * 22))
+            self.screen.blit(
+                self.small_font.render(f"- {hero.name} ({hero.race} {hero.class_type})", True, TEXT),
+                (party_rect.x, party_rect.y + 24 + idx * 18),
+            )
 
-        button_y = 786
-        self._draw_button(pygame.Rect(620, button_y, 150, 38), "Create Hero", "create_hero", color=GREEN)
-        self._draw_button(pygame.Rect(784, button_y, 150, 38), "Delete Hero", "delete_hero", enabled=selected is not None, color=RED)
-        self._draw_button(pygame.Rect(948, button_y, 150, 38), "Add To Party", "add_party", enabled=selected is not None, color=BLUE)
-        self._draw_button(pygame.Rect(1112, button_y, 150, 38), "Remove", "remove_party", enabled=selected is not None, color=PURPLE)
-        self._draw_button(pygame.Rect(1276, button_y, 170, 38), "Begin Quest", "begin_quest", enabled=bool(party), color=GOLD)
-        self._draw_button(pygame.Rect(1112, 832, 160, 34), "Continue Save", "continue_save", enabled=self.game.has_save_game(), small=True)
-        self._draw_button(pygame.Rect(1286, 832, 160, 34), "Quit", "quit", color=RED, small=True)
+        button_gap = 14
+        button_w = max(120, (controls_rect.width - button_gap * 4) // 5)
+        small_button_w = max(140, (controls_rect.width - button_gap * 2) // 3)
+        button_y = controls_rect.y
+        for idx, (label, action, enabled, color) in enumerate(
+            [
+                ("Create Hero", "create_hero", True, GREEN),
+                ("Delete Hero", "delete_hero", selected is not None, RED),
+                ("Add To Party", "add_party", selected is not None, BLUE),
+                ("Remove", "remove_party", selected is not None, PURPLE),
+                ("Begin Quest", "begin_quest", bool(party), GOLD),
+            ]
+        ):
+            bx = controls_rect.x + idx * (button_w + button_gap)
+            width = button_w if idx < 4 else controls_rect.right - bx
+            self._draw_button(pygame.Rect(bx, button_y, width, 38), label, action, enabled=enabled, color=color)
+        small_y = controls_rect.y + 44
+        self._draw_button(
+            pygame.Rect(controls_rect.x, small_y, small_button_w, 30),
+            "Character Sheet",
+            "open_sheet",
+            enabled=selected is not None,
+            small=True,
+            color=BLUE,
+        )
+        self._draw_button(
+            pygame.Rect(controls_rect.x + small_button_w + button_gap, small_y, small_button_w, 30),
+            "Between Expeditions",
+            "open_services",
+            enabled=selected is not None,
+            small=True,
+            color=PURPLE,
+        )
+        self._draw_button(
+            pygame.Rect(controls_rect.x + (small_button_w + button_gap) * 2, small_y, small_button_w, 30),
+            "Quit",
+            "quit",
+            color=RED,
+            small=True,
+        )
+        continue_w = min(190, max(140, controls_rect.width // 5))
+        self._draw_button(
+            pygame.Rect(controls_rect.right - continue_w, controls_rect.y - 34, continue_w, 28),
+            "Continue Save",
+            "continue_save",
+            enabled=self.game.has_save_game(),
+            small=True,
+        )
 
-    def _draw_hero_detail(self, hero: Hero, x: int, y: int):
+    def _draw_tavern_service_preview(self, hero: Hero, rect: pygame.Rect):
+        pygame.draw.rect(self.screen, PANEL_ALT, rect, border_radius=8)
+        pygame.draw.rect(self.screen, BLACK, rect, 1, border_radius=8)
+        x = rect.x + 12
+        y = rect.y + 12
+        self.screen.blit(self.font.render("Between Expeditions", True, ACCENT), (x, y))
+        y += 34
+        stash = getattr(self.game, "party_stash_gold", 0)
+        summary_lines = [
+            f"Selected hero: {hero.name}",
+            f"Gold: {hero.gold} gc",
+            f"Stash: {stash} gc",
+            f"Delves completed: {hero.expeditions_completed}",
+            "",
+            "Open the dedicated services screen for:",
+            "- training and Fate",
+            "- healer services",
+            "- supplies, ammo, arms, armour",
+            "- henchmen",
+            "- wizard study",
+        ]
+        for idx, line in enumerate(summary_lines):
+            self.screen.blit(self.small_font.render(line, True, TEXT if line else MUTED), (x, y + idx * 22))
+        self._draw_button(
+            pygame.Rect(rect.x + 12, rect.bottom - 42, rect.width - 24, 28),
+            "Open Between Expeditions",
+            "open_services",
+            enabled=True,
+            small=True,
+            color=PURPLE,
+        )
+
+    def _draw_tavern_services(self):
+        layout = self._get_services_layout()
+        hero_rect = layout["hero_rect"]
+        hero_text_rect = layout["hero_text_rect"]
+        service_rect = layout["service_rect"]
+        self._draw_panel(hero_rect, "Hero Details")
+        self._draw_panel(service_rect, "Between Expeditions")
+        hero = self._get_selected_hero()
+        if hero is None:
+            self.screen.blit(self.font.render("No hero selected.", True, TEXT), (hero_rect.x + 20, hero_rect.y + 64))
+            self._draw_button(
+                pygame.Rect(service_rect.x + 20, service_rect.bottom - 40, 180, 28),
+                "Back To Tavern",
+                "close_services",
+                small=True,
+                color=BLUE,
+            )
+            return
+        self._draw_hero_detail(hero, hero_text_rect)
+        tab_defs: List[Tuple[str, str]] = [
+            ("training", "Training"),
+            ("shop", "Shop"),
+            ("henchmen", "Henchmen"),
+        ]
+        if hero.is_wizard():
+            tab_defs.append(("wizard", "Wizard"))
+        tabs_rect = pygame.Rect(service_rect.x + 12, service_rect.y + 48, service_rect.width - 24, 30)
+        tab_gap = 10
+        tab_w = max(110, (tabs_rect.width - tab_gap * (len(tab_defs) - 1)) // len(tab_defs))
+        for idx, (tab_key, tab_label) in enumerate(tab_defs):
+            tab_x = tabs_rect.x + idx * (tab_w + tab_gap)
+            self._draw_button(
+                pygame.Rect(tab_x, tabs_rect.y, tab_w, 28),
+                tab_label,
+                "services_tab",
+                payload=tab_key,
+                small=True,
+                color=PURPLE if self.services_tab == tab_key else BLUE,
+            )
+        self._draw_tavern_service_panel(
+            hero,
+            pygame.Rect(service_rect.x + 12, service_rect.y + 86, service_rect.width - 24, service_rect.height - 102),
+            show_heading=False,
+        )
+        self._draw_button(
+            pygame.Rect(hero_rect.x + 20, hero_rect.bottom - 40, 180, 28),
+            "Back To Tavern",
+            "close_services",
+            small=True,
+            color=BLUE,
+        )
+
+    def _draw_hero_detail(self, hero: Hero, rect: pygame.Rect):
+        inventory_bits = []
+        for key, count in sorted(hero.inventory.items()):
+            if count > 0:
+                inventory_bits.append(f"{key} x{count}")
+        if hero.ammo.get("arrows", 0):
+            inventory_bits.append(f"arrows {hero.ammo['arrows']}")
+        if hero.ammo.get("bolts", 0):
+            inventory_bits.append(f"bolts {hero.ammo['bolts']}")
         lines = [
             f"Name:  {hero.name}",
             f"Race:  {hero.race}",
             f"Class: {hero.class_type}",
+            f"Role:  {hero.henchman_type.replace('_', ' ').title() if hero.is_henchman and hero.henchman_type else 'Hero'}",
             "",
             "Statistics:",
             f"  Weapon Skill:    {hero.ws:2}",
@@ -1045,12 +1816,278 @@ class PygameApp:
             f"Wounds: {hero.current_wounds}/{hero.max_wounds}",
             f"Fate:   {hero.current_fate}/{hero.max_fate}",
             f"Gold:   {hero.gold}",
+            f"Stash:  {getattr(self.game, 'party_stash_gold', 0)}",
+            f"Delves: {hero.expeditions_completed}",
+            f"Weapons: {hero.get_total_carried_weapons()}/3",
+            (f"Upkeep: {hero.upkeep_cost} gc" if hero.is_henchman else ""),
             "",
             "Equipment:",
         ]
         lines.extend(f"  - {item.get('name', 'Unknown')}" for item in hero.equipment)
+        if inventory_bits:
+            lines.append("")
+            lines.append("Supplies:")
+            lines.extend(f"  - {bit}" for bit in inventory_bits[:6])
+        self.screen.set_clip(rect)
         for index, line in enumerate(lines):
-            self.screen.blit(self.font.render(line, True, TEXT), (x, y + index * 26))
+            self.screen.blit(self.font.render(line, True, TEXT), (rect.x, rect.y + index * 26))
+        self.screen.set_clip(None)
+
+    def _get_tavern_service_content_height(self, hero: Hero, panel: pygame.Rect) -> int:
+        header_h = 0 if hero.expeditions_completed > 0 else 24
+        if self.services_tab == "training":
+            return header_h + 182 + 12 + 146 + 24
+        if self.services_tab == "shop":
+            return header_h + 108 + 12 + 258 + 12 + 168 + 24
+        if self.services_tab == "henchmen":
+            return header_h + 138 + 24
+        if self.services_tab == "wizard" and hero.is_wizard():
+            spell_count = 0
+            for spell_key, entry in self.tables.get("costs_table", {}).get("spells", {}).items():
+                if spell_key == "spell_component":
+                    continue
+                display_name = str(entry.get("display_name", spell_key))
+                if all(current.strip().lower() != display_name.lower() for current in hero.known_spells):
+                    spell_count += 1
+            wizard_rows = max(1, ((spell_count + 1) // 2) + ((len(hero.known_spells) + 1) // 2))
+            return header_h + 46 + wizard_rows * 30 + 34
+        return 320
+
+    def _draw_tavern_service_panel(self, hero: Hero, panel: pygame.Rect, *, show_heading: bool = True):
+        pygame.draw.rect(self.screen, PANEL_ALT, panel, border_radius=8)
+        pygame.draw.rect(self.screen, BLACK, panel, 1, border_radius=8)
+        content_height = self._get_tavern_service_content_height(hero, panel)
+        max_scroll = max(0, content_height - panel.height)
+        self.tavern_service_scroll = min(self.tavern_service_scroll, max_scroll)
+        prev_clip = self.screen.get_clip()
+        self.screen.set_clip(panel)
+
+        def draw_service_button(rect: pygame.Rect, label: str, action: str, **kwargs):
+            visible_rect = rect.clip(panel)
+            if visible_rect.width < 40 or visible_rect.height < 16:
+                return
+            self._draw_button(visible_rect, label, action, **kwargs)
+
+        def draw_group(group_rect: pygame.Rect, title: str):
+            pygame.draw.rect(self.screen, PANEL, group_rect, border_radius=8)
+            pygame.draw.rect(self.screen, (58, 61, 74), group_rect, 1, border_radius=8)
+            self.screen.blit(self.small_font.render(title, True, TEXT), (group_rect.x + 10, group_rect.y + 8))
+
+        def draw_shop_button(card_rect: pygame.Rect, top_y: int, label: str, action: str, payload: str, color: Tuple[int, int, int]):
+            button_rect = pygame.Rect(card_rect.x + 10, top_y, btn_w, 24)
+            draw_service_button(button_rect, label, action, payload=payload, small=True, color=color)
+            item = self._build_creation_item(payload)
+            if item:
+                effect_lines = self._describe_item_effects(item)
+                for idx, line in enumerate(effect_lines[:1]):
+                    line_y = top_y + 26 + idx * 14
+                    if line_y + 12 <= card_rect.bottom - 6:
+                        self.screen.blit(self.small_font.render(self._fit_text(line, self.small_font, btn_w), True, MUTED), (card_rect.x + 14, line_y))
+
+        x = panel.x + 12
+        y = panel.y + 10 - self.tavern_service_scroll
+        if show_heading:
+            self.screen.blit(self.font.render("Between Expeditions", True, ACCENT), (x, y))
+            y += 28
+        if hero.expeditions_completed <= 0:
+            self.screen.blit(
+                self.small_font.render("Training and spell buying unlock after the first completed delve.", True, MUTED),
+                (x, y),
+            )
+            y += 24
+
+        column_gap = 14
+        card_gap = 12
+        col_w = (panel.width - 36 - column_gap) // 2
+        left_x = x
+        right_x = left_x + col_w + column_gap
+        btn_w = col_w - 20
+        half_btn_w = (btn_w - 10) // 2
+
+        if self.services_tab == "training":
+            train_rows = [
+                ("WS 200", "ws"),
+                ("BS 200", "bs"),
+                ("S 200", "strength"),
+                ("T 200", "toughness"),
+                ("Sp 200", "speed"),
+                ("W 200", "wounds"),
+            ]
+            train_enabled = hero.expeditions_completed > 0 and not hero.is_dead
+            train_rect = pygame.Rect(left_x, y, col_w, 182)
+            draw_group(train_rect, "Training")
+            train_y = train_rect.y + 30
+            for idx, (label, payload) in enumerate(train_rows):
+                bx = train_rect.x + 10 if idx % 2 == 0 else train_rect.x + 20 + half_btn_w
+                by = train_y + (idx // 2) * 34
+                draw_service_button(
+                    pygame.Rect(bx, by, half_btn_w, 28),
+                    label,
+                    "tavern_train",
+                    enabled=train_enabled,
+                    payload=payload,
+                    small=True,
+                    color=BLUE,
+                )
+            fate_y = train_y + ((len(train_rows) + 1) // 2) * 34
+            draw_service_button(
+                pygame.Rect(train_rect.x + 10, fate_y, half_btn_w, 28),
+                "Fate 1000",
+                "tavern_fate",
+                enabled=train_enabled,
+                small=True,
+                color=PURPLE,
+            )
+
+            healer_rect = pygame.Rect(left_x, train_rect.bottom + card_gap, col_w, 146)
+            draw_group(healer_rect, "Healer")
+            healer_y = healer_rect.y + 30
+            healer_buttons = [
+                ("Potion 50", "healing_potion"),
+                ("Cure 100", "remove_disease"),
+                ("Limb 500", "restore_lost_limb"),
+                ("Res 1000", "resurrect_dead_hero"),
+            ]
+            for idx, (label, payload) in enumerate(healer_buttons):
+                bx = healer_rect.x + 10 if idx % 2 == 0 else healer_rect.x + 20 + half_btn_w
+                by = healer_y + (idx // 2) * 34
+                enabled = not hero.is_dead or payload == "resurrect_dead_hero"
+                if payload == "resurrect_dead_hero":
+                    enabled = hero.is_dead
+                draw_service_button(
+                    pygame.Rect(bx, by, half_btn_w, 28),
+                    label,
+                    "tavern_healer",
+                    enabled=enabled,
+                    payload=payload,
+                    small=True,
+                    color=GREEN,
+                )
+
+        elif self.services_tab == "shop":
+            cash_rect = pygame.Rect(left_x, y, col_w, 108)
+            draw_group(cash_rect, "Gold")
+            draw_service_button(
+                pygame.Rect(cash_rect.x + 10, cash_rect.y + 34, btn_w, 24),
+                "Deposit Gold",
+                "tavern_deposit_gold",
+                small=True,
+                color=GREEN,
+            )
+            draw_service_button(
+                pygame.Rect(cash_rect.x + 10, cash_rect.y + 64, btn_w, 24),
+                "Withdraw 250",
+                "tavern_withdraw_gold",
+                small=True,
+                color=BLUE,
+            )
+
+            supplies_rect = pygame.Rect(left_x, cash_rect.bottom + card_gap, col_w, 258)
+            draw_group(supplies_rect, "Supplies")
+            section_y = supplies_rect.y + 30
+            supply_buttons = [
+                ("Rope 5", "tavern_buy_supply", "rope_10ft"),
+                ("Spikes 10", "tavern_buy_supply", "iron_spikes_10"),
+                ("Greek Fire 25", "tavern_buy_supply", "greek_fire_flask"),
+                ("Poison 25", "tavern_buy_supply", "rat_poison"),
+                ("Screetch 25", "tavern_buy_supply", "screetch_bug"),
+                ("Arrows 10", "tavern_buy_ammo", "arrows_bundle"),
+                ("Bolts 10", "tavern_buy_ammo", "crossbow_bolts_bundle"),
+            ]
+            for idx, (label, action, payload) in enumerate(supply_buttons):
+                by = section_y + idx * 30
+                draw_service_button(
+                    pygame.Rect(supplies_rect.x + 10, by, btn_w, 24),
+                    label,
+                    action,
+                    payload=payload,
+                    small=True,
+                    color=GOLD,
+                )
+
+            gear_rect = pygame.Rect(right_x, y, col_w, 232)
+            draw_group(gear_rect, "Arms & Armour")
+            gear_rows = [
+                ("Sword 25", "sword"),
+                ("Shield 10", "shield"),
+                ("Bow 25", "bow"),
+                ("Chain 50", "chain_armour"),
+            ]
+            for idx, (label, item_key) in enumerate(gear_rows):
+                row_y = gear_rect.y + 30 + idx * 48
+                draw_shop_button(gear_rect, row_y, label, "tavern_buy_equipment", item_key, BLUE)
+
+        elif self.services_tab == "henchmen":
+            hench_rect = pygame.Rect(left_x, y, col_w, 138)
+            draw_group(hench_rect, "Henchmen")
+            hench_y = hench_rect.y + 30
+            hire_enabled = not hero.is_henchman
+            draw_service_button(
+                pygame.Rect(hench_rect.x + 10, hench_y, btn_w, 24),
+                "Man-at-Arms 50",
+                "tavern_hire_henchman",
+                payload="man_at_arms",
+                small=True,
+                color=GREEN,
+                enabled=hire_enabled,
+            )
+            draw_service_button(
+                pygame.Rect(hench_rect.x + 10, hench_y + 30, btn_w, 24),
+                "Sergeant 100",
+                "tavern_hire_henchman",
+                payload="sergeant",
+                small=True,
+                color=GREEN,
+                enabled=hire_enabled,
+            )
+            draw_service_button(
+                pygame.Rect(hench_rect.x + 10, hench_y + 60, btn_w, 24),
+                "2 MAA -> Sgt",
+                "tavern_swap_sergeant",
+                small=True,
+                color=BLUE,
+                enabled=hire_enabled,
+            )
+
+        elif self.services_tab == "wizard" and hero.is_wizard():
+            purchasable_spells = []
+            for spell_key, entry in self.tables.get("costs_table", {}).get("spells", {}).items():
+                if spell_key == "spell_component":
+                    continue
+                display_name = str(entry.get("display_name", spell_key))
+                if all(current.strip().lower() != display_name.lower() for current in hero.known_spells):
+                    purchasable_spells.append((display_name, spell_key, int(entry.get("cost", 0))))
+            wizard_rows = max(1, ((len(purchasable_spells) + 1) // 2) + ((len(hero.known_spells) + 1) // 2))
+            wizard_rect = pygame.Rect(left_x, y, col_w, 46 + wizard_rows * 30 + 10)
+            draw_group(wizard_rect, "Wizard Study")
+            spell_y = wizard_rect.y + 30
+            for idx, (display_name, spell_key, cost) in enumerate(purchasable_spells):
+                bx = wizard_rect.x + 10 if idx % 2 == 0 else wizard_rect.x + 20 + half_btn_w
+                by = spell_y + (idx // 2) * 30
+                draw_service_button(
+                    pygame.Rect(bx, by, half_btn_w, 24),
+                    f"{display_name} {cost}",
+                    "tavern_buy_spell",
+                    enabled=hero.expeditions_completed > 0,
+                    payload=spell_key,
+                    small=True,
+                    color=PURPLE,
+                )
+            component_y = spell_y + ((len(purchasable_spells) + 1) // 2) * 30 + 8
+            for idx, spell_name in enumerate(hero.known_spells):
+                bx = wizard_rect.x + 10 if idx % 2 == 0 else wizard_rect.x + 20 + half_btn_w
+                by = component_y + (idx // 2) * 30
+                draw_service_button(
+                    pygame.Rect(bx, by, half_btn_w, 24),
+                    f"Comp: {spell_name}",
+                    "tavern_buy_component",
+                    payload=spell_name,
+                    small=True,
+                    color=BLUE,
+                )
+        self.screen.set_clip(prev_clip)
+        if max_scroll > 0:
+            self._draw_scrollbar_for_content(panel, self.tavern_service_scroll, max_scroll)
 
     def _draw_dungeon(self):
         self.game.ensure_phase_consistency()
@@ -1100,10 +2137,16 @@ class PygameApp:
         for monster in self.game.monsters:
             if monster.is_dead:
                 continue
-            sx, sy = self._grid_to_screen(monster.x, monster.y)
-            outer = pygame.Rect(sx + 4, sy + 4, TILE_SIZE - 8, TILE_SIZE - 8)
-            pygame.draw.ellipse(self.screen, RED, outer)
-            self._draw_centered_text(monster.name[0], pygame.Rect(sx, sy, TILE_SIZE, TILE_SIZE), self.font, TEXT)
+            occupied_tiles = sorted(monster.get_occupied_tiles())
+            for index, (mx, my) in enumerate(occupied_tiles):
+                sx, sy = self._grid_to_screen(mx, my)
+                outer = pygame.Rect(sx + 4, sy + 4, TILE_SIZE - 8, TILE_SIZE - 8)
+                if monster.is_special_weapon_team():
+                    pygame.draw.rect(self.screen, RED, outer, border_radius=6)
+                else:
+                    pygame.draw.ellipse(self.screen, RED, outer)
+                if index == 0:
+                    self._draw_centered_text(monster.name[0], pygame.Rect(sx, sy, TILE_SIZE, TILE_SIZE), self.font, TEXT)
 
         selected_id = self.selected_hero_id
         for hero in self.game.party:
@@ -1157,7 +2200,9 @@ class PygameApp:
             for other in self.game.party
             if other != hero and not other.is_dead and not other.is_ko
         }
-        occupied.update((monster.x, monster.y) for monster in self.game.monsters if not monster.is_dead)
+        for monster in self.game.monsters:
+            if not monster.is_dead:
+                occupied.update(monster.get_occupied_tiles())
         for dx in range(-remaining, remaining + 1):
             for dy in range(-remaining, remaining + 1):
                 tx, ty = hero.x + dx, hero.y + dy
@@ -1165,8 +2210,8 @@ class PygameApp:
                     continue
                 if (tx, ty) in occupied or not dungeon.is_explored(tx, ty) or not dungeon.is_walkable(tx, ty):
                     continue
-                path = find_path_bfs(hero.x, hero.y, tx, ty, dungeon, occupied)
-                if path is None or self.game.get_path_movement_cost(path) > remaining:
+                can_move, _, _ = self.game.can_move_hero_to(hero, tx, ty)
+                if not can_move:
                     continue
                 sx, sy = self._grid_to_screen(tx, ty)
                 center = (sx + TILE_SIZE // 2, sy + TILE_SIZE // 2)
@@ -1279,15 +2324,18 @@ class PygameApp:
                 pygame.draw.rect(self.screen, ACCENT, hero_rect, 1)
 
         for monster in self.game.monsters:
-            if monster.is_dead or not dungeon.is_explored(monster.x, monster.y):
+            if monster.is_dead:
                 continue
-            monster_rect = pygame.Rect(
-                origin_x + (monster.x - min_x) * tile_px,
-                origin_y + (monster.y - min_y) * tile_px,
-                tile_px,
-                tile_px,
-            )
-            pygame.draw.rect(self.screen, RED, monster_rect)
+            for mx, my in monster.get_occupied_tiles():
+                if not dungeon.is_explored(mx, my):
+                    continue
+                monster_rect = pygame.Rect(
+                    origin_x + (mx - min_x) * tile_px,
+                    origin_y + (my - min_y) * tile_px,
+                    tile_px,
+                    tile_px,
+                )
+                pygame.draw.rect(self.screen, RED, monster_rect)
 
         if show_frame:
             board_rect = self._layout()["board"]
@@ -1328,8 +2376,13 @@ class PygameApp:
         self.screen.blit(self.font.render("Party", True, ACCENT), (panel_rect.x + 8, panel_rect.y + 8))
         content_rect = panel_rect.inflate(-8, -38)
         self.screen.set_clip(content_rect)
+        row_height = 98
+        visible_rows = max(1, content_rect.height // row_height)
+        max_scroll = max(0, len(self.game.party) - visible_rows)
+        self.party_panel_scroll = min(self.party_panel_scroll, max_scroll)
+        start_index = self.party_panel_scroll
         y = content_rect.y + 4
-        for hero in self.game.party:
+        for hero in self.game.party[start_index:]:
             rect = pygame.Rect(content_rect.x, y, content_rect.width, 90)
             if rect.bottom > content_rect.bottom:
                 break
@@ -1351,6 +2404,8 @@ class PygameApp:
                 self.screen.blit(self.small_font.render(effects[:20], True, MUTED), (rect.x + 8, rect.y + 68))
             y += 98
         self.screen.set_clip(None)
+        if max_scroll > 0:
+            self._draw_simple_scrollbar(panel_rect, self.party_panel_scroll, max_scroll)
 
     def _draw_action_panel(self, panel_rect: pygame.Rect):
         pygame.draw.rect(self.screen, PANEL_ALT, panel_rect, border_radius=6)
@@ -1365,6 +2420,25 @@ class PygameApp:
             self.screen.blit(self.small_font.render("No hero selected.", True, TEXT), (x, y))
             return
         self.screen.set_clip(content_rect)
+        pending_fate_hero = self.game.get_pending_fate_hero()
+        if pending_fate_hero is not None:
+            fate_lines = [
+                "Fate Decision",
+                pending_fate_hero.name,
+                f"W {pending_fate_hero.current_wounds}/{pending_fate_hero.max_wounds}  F {pending_fate_hero.current_fate}",
+                "Spend Fate to survive",
+                "or refuse and take the blow.",
+            ]
+            for line in fate_lines:
+                if y + 18 > content_rect.bottom:
+                    break
+                self.screen.blit(self.small_font.render(line, True, TEXT if line != "Fate Decision" else ACCENT), (x, y))
+                y += 20
+            self.screen.set_clip(None)
+            self._draw_button(pygame.Rect(x, panel_rect.bottom - 120, content_rect.width, 32), "Spend Fate", "fate_spend", color=PURPLE, small=True)
+            self._draw_button(pygame.Rect(x, panel_rect.bottom - 82, content_rect.width, 28), "Refuse Fate", "fate_refuse", color=RED, small=True)
+            self._draw_button(pygame.Rect(x, panel_rect.bottom - 42, content_rect.width, 32), "Return To Tavern", "return_tavern", color=RED, small=True)
+            return
         remaining, attacked = self._get_hero_status(hero.id)
         info = [
             hero.name,
@@ -1387,6 +2461,90 @@ class PygameApp:
             label = f"{action_class.icon} {action_class.name}"
             self._draw_action_button(pygame.Rect(x, y, content_rect.width, 28), label, action_class)
             y += 34
+        can_administer_potion, _ = self.game.can_administer_healing_potion(hero)
+        if can_administer_potion and y + 28 <= content_rect.bottom - 80:
+            self._draw_button(
+                pygame.Rect(x, y, content_rect.width, 28),
+                "Give Healing Potion",
+                "give_healing_potion",
+                small=True,
+                color=GREEN,
+            )
+            y += 34
+        can_restrain_mad, _ = self.game.can_restrain_mad_hero(hero)
+        if can_restrain_mad and y + 28 <= content_rect.bottom - 80:
+            self._draw_button(
+                pygame.Rect(x, y, content_rect.width, 28),
+                "Restrain Mad Hero",
+                "restrain_mad_hero",
+                small=True,
+                color=PURPLE,
+            )
+            y += 34
+        can_prepare_ko, _ = self.game.can_prepare_ko_move(hero)
+        if can_prepare_ko and y + 28 <= content_rect.bottom - 80:
+            ko_label = "Drag KO Hero" if self.game.current_phase == "COMBAT" else "Carry KO Hero"
+            self._draw_button(
+                pygame.Rect(x, y, content_rect.width, 28),
+                ko_label,
+                "prepare_ko_move",
+                small=True,
+                color=BLUE,
+            )
+            y += 34
+        if self.game.current_phase == "COMBAT":
+            if y + 28 <= content_rect.bottom - 80:
+                self._draw_button(
+                    pygame.Rect(x, y, content_rect.width, 28),
+                    "Run",
+                    "combat_run",
+                    enabled=hero.id not in self.game.hero_has_attacked and hero.id not in self.game.hero_ran_this_phase,
+                    small=True,
+                    color=BLUE,
+                )
+                y += 34
+            if y + 28 <= content_rect.bottom - 80:
+                self._draw_button(
+                    pygame.Rect(x, y, content_rect.width, 28),
+                    "Open Door",
+                    "combat_open_door",
+                    enabled=any(
+                        self.game.dungeon.get_tile(hero.x + dx, hero.y + dy) == self.game.dungeon.TileType.DOOR_CLOSED
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    ),
+                    small=True,
+                    color=GOLD,
+                )
+                y += 34
+            if y + 28 <= content_rect.bottom - 80:
+                self._draw_button(
+                    pygame.Rect(x, y, content_rect.width, 28),
+                    "Close Door",
+                    "combat_close_door",
+                    enabled=any(
+                        self.game.dungeon.get_tile(hero.x + dx, hero.y + dy) == self.game.dungeon.TileType.DOOR_OPEN
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    ),
+                    small=True,
+                    color=PURPLE,
+                )
+                y += 34
+            if (
+                (not hero.is_ko)
+                and hero.has_usable_healing_potion()
+                and hero.current_wounds < hero.max_wounds
+                and not hero.has_pending_healing_potion()
+                and y + 28 <= content_rect.bottom - 80
+            ):
+                self._draw_button(
+                    pygame.Rect(x, y, content_rect.width, 28),
+                    "Drink Healing Potion",
+                    "drink_healing_potion",
+                    enabled=hero.id not in self.game.hero_has_attacked and hero.id not in self.game.hero_ran_this_phase,
+                    small=True,
+                    color=GREEN,
+                )
+                y += 34
         spell_options = self.game.get_available_spell_options(hero)
         if spell_options:
             if y + 22 <= content_rect.bottom - 80:
@@ -1408,6 +2566,17 @@ class PygameApp:
                 self.small_font.render(f"Casting: {self.pending_spell['spell_name']}", True, GOLD),
                 (x, pending_y),
             )
+        elif isinstance(self.game.pending_board_action, dict) and self.game.pending_board_action.get("hero_id") == hero.id:
+            pending_y = max(panel_rect.bottom - 106, min(y, panel_rect.bottom - 106))
+            prompt = "Choose target on board"
+            if self.game.pending_board_action.get("type") == "secret_door_search":
+                prompt = "Choose wall section on board"
+            elif self.game.pending_board_action.get("type") in {"carry_ko_hero", "drag_ko_hero"}:
+                prompt = "Choose KO destination on board"
+            self.screen.blit(
+                self.small_font.render(prompt, True, GOLD),
+                (x, pending_y),
+            )
         button_bottom = panel_rect.bottom
         self._draw_button(pygame.Rect(x, button_bottom - 76, content_rect.width, 36), "End Hero Phase", "end_phase", enabled=self.game.hero_phase_active, color=GOLD)
         self._draw_button(pygame.Rect(x, button_bottom - 32, content_rect.width, 32), "Return To Tavern", "return_tavern", color=RED, small=True)
@@ -1425,7 +2594,11 @@ class PygameApp:
             self.screen.blit(self.small_font.render("None visible", True, MUTED), (x, y))
             return
         self.screen.set_clip(content_rect)
-        for monster in monsters[:5]:
+        row_height = 40
+        visible_rows = max(1, content_rect.height // row_height)
+        max_scroll = max(0, len(monsters) - visible_rows)
+        self.monster_panel_scroll = min(self.monster_panel_scroll, max_scroll)
+        for monster in monsters[self.monster_panel_scroll:]:
             if y + 36 > content_rect.bottom:
                 break
             line = f"{monster.name[:14]:14} {monster.current_wounds}/{monster.max_wounds}"
@@ -1435,6 +2608,32 @@ class PygameApp:
             self.screen.blit(self.small_font.render(pos_line, True, MUTED), (x, y))
             y += 22
         self.screen.set_clip(None)
+        if max_scroll > 0:
+            self._draw_simple_scrollbar(panel_rect, self.monster_panel_scroll, max_scroll)
+
+    def _draw_simple_scrollbar(self, panel_rect: pygame.Rect, offset: int, max_offset: int):
+        """Draw a small vertical scrollbar for clipped panels."""
+        if max_offset <= 0:
+            return
+        track = pygame.Rect(panel_rect.right - 8, panel_rect.y + 34, 4, panel_rect.height - 42)
+        pygame.draw.rect(self.screen, (55, 58, 70), track, border_radius=2)
+        thumb_height = max(18, int(track.height * max(0.15, 1 / (max_offset + 1))))
+        usable = max(1, track.height - thumb_height)
+        thumb_y = track.y + int((offset / max_offset) * usable)
+        thumb = pygame.Rect(track.x, thumb_y, track.width, thumb_height)
+        pygame.draw.rect(self.screen, ACCENT, thumb, border_radius=2)
+
+    def _draw_scrollbar_for_content(self, content_rect: pygame.Rect, offset: int, max_offset: int):
+        """Draw a scrollbar aligned to a raw clipped content area."""
+        if max_offset <= 0:
+            return
+        track = pygame.Rect(content_rect.right - 6, content_rect.y + 4, 4, max(20, content_rect.height - 8))
+        pygame.draw.rect(self.screen, (55, 58, 70), track, border_radius=2)
+        thumb_height = max(18, int(track.height * max(0.15, content_rect.height / max(content_rect.height, content_rect.height + max_offset))))
+        usable = max(1, track.height - thumb_height)
+        thumb_y = track.y + int((offset / max_offset) * usable)
+        thumb = pygame.Rect(track.x, thumb_y, track.width, thumb_height)
+        pygame.draw.rect(self.screen, ACCENT, thumb, border_radius=2)
 
     def _draw_log_panel(self, panel_rect: pygame.Rect):
         x = panel_rect.x + 10

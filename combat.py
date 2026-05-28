@@ -3,7 +3,7 @@ Combat resolution engine for Advanced HeroQuest.
 """
 
 import random
-from typing import Tuple, Optional, List
+from typing import Callable, Tuple, Optional, List
 from hero import Hero
 from monster import Monster
 
@@ -32,6 +32,73 @@ def roll_d(sides: int = 12) -> int:
     return random.randint(1, sides)
 
 
+def get_model_occupied_tiles(model) -> set[Tuple[int, int]]:
+    """Return occupied board tiles for heroes and footprint-aware monsters."""
+    if isinstance(model, Monster):
+        return set(model.get_occupied_tiles())
+    return {(model.x, model.y)}
+
+
+def get_fireball_template_area(x: int, y: int) -> List[Tuple[int, int]]:
+    """Return the grid squares covered by the AHQ fireball template."""
+    return [(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
+
+
+def get_ranged_los_state_for_models(
+    dungeon,
+    attacker,
+    target,
+    friendly_models: List,
+    hostile_models: List,
+    attacker_tiles: Optional[List[Tuple[int, int]]] = None,
+    target_tiles: Optional[List[Tuple[int, int]]] = None,
+) -> Tuple[str, Tuple[int, int], Tuple[int, int]]:
+    """Evaluate ranged LOS, including large-monster footprint exceptions."""
+    origin_tiles = set(attacker_tiles or get_model_occupied_tiles(attacker))
+    destination_tiles = set(target_tiles or get_model_occupied_tiles(target))
+    large_endpoint = (
+        isinstance(attacker, Monster) and attacker.is_large_monster()
+    ) or (
+        isinstance(target, Monster) and target.is_large_monster()
+    )
+
+    blocker_tiles: set[Tuple[int, int]] = set()
+    friendly_blocker_tiles: set[Tuple[int, int]] = set()
+    for models, friendly in ((friendly_models, True), (hostile_models, False)):
+        for model in models:
+            if model is attacker or model is target or getattr(model, "is_dead", False):
+                continue
+            if large_endpoint and not (isinstance(model, Monster) and model.is_large_monster()):
+                continue
+            tiles = get_model_occupied_tiles(model) - origin_tiles - destination_tiles
+            blocker_tiles.update(tiles)
+            if friendly:
+                friendly_blocker_tiles.update(tiles)
+
+    best: Optional[Tuple[str, Tuple[int, int], Tuple[int, int]]] = None
+    rank = {"clear": 0, "partial": 1, "blocked": 2}
+    for origin_x, origin_y in sorted(origin_tiles):
+        adjacent_friendly = {
+            pos for pos in friendly_blocker_tiles
+            if abs(pos[0] - origin_x) + abs(pos[1] - origin_y) == 1
+        }
+        for target_x, target_y in sorted(destination_tiles):
+            state = dungeon.get_los_state(
+                origin_x,
+                origin_y,
+                target_x,
+                target_y,
+                model_blockers=blocker_tiles,
+                adjacent_friendly_blockers=adjacent_friendly,
+            )
+            result = (state, (origin_x, origin_y), (target_x, target_y))
+            if best is None or rank[state] < rank[best[0]]:
+                best = result
+            if state == "clear":
+                return result
+    return best or ("blocked", (attacker.x, attacker.y), (target.x, target.y))
+
+
 def get_hit_roll_needed(att_ws: int, def_ws: int) -> int:
     """Get the minimum D12 roll needed to hit."""
     att_idx = max(0, min(11, att_ws - 1))
@@ -44,6 +111,7 @@ def resolve_melee_attack(
     defender: Monster,
     log: Optional[List[str]] = None,
     allow_free_attack: bool = True,
+    is_free_attack: bool = False,
 ) -> Tuple[bool, int, str]:
     """
     Resolve a melee attack.
@@ -73,7 +141,7 @@ def resolve_melee_attack(
         if log is not None:
             log.append(f"  FUMBLE! {defender.name} gets a free attack!")
         if allow_free_attack:
-            resolve_monster_attack(defender, attacker, log, allow_free_attack=False, attack_name="free attack")
+            resolve_monster_attack(defender, attacker, log, allow_free_attack=True, attack_name="free attack")
         return False, 0, "fumble"
     
     if hit_roll < hit_needed and not is_critical:
@@ -95,7 +163,12 @@ def resolve_melee_attack(
     else:
         damage_dice = attacker.get_damage_dice() + attacker.get_bonus_melee_damage_dice()
         damage, rolls = roll_damage(damage_dice, defender.toughness, is_critical)
-    
+        weapon = attacker.get_equipped_melee_weapon() or {}
+        weapon_name = str(weapon.get("name", "")).lower()
+        magical_weapon = "magic" in weapon_name or "rune" in weapon_name or "chaos" in weapon_name
+        if defender.has_special_rule("invulnerable") and 12 not in rolls and not magical_weapon and not is_free_attack:
+            damage = 0
+
     if log is not None:
         log.append(f"  Damage roll: {rolls} vs T{defender.toughness} = {damage} wounds")
     
@@ -108,6 +181,50 @@ def resolve_melee_attack(
     return True, damage, "critical" if is_critical else "hit"
 
 
+def resolve_hero_vs_hero_attack(
+    attacker: Hero,
+    defender: Hero,
+    log: Optional[List[str]] = None,
+    allow_free_attack: bool = True,
+) -> Tuple[bool, int, str]:
+    """Resolve a melee attack from one hero against another."""
+    hit_needed = get_hit_roll_needed(attacker.get_effective_ws(), defender.get_effective_ws())
+    hit_roll = roll_d(12)
+    critical_threshold = attacker.get_weapon_critical()
+    fumble_threshold = attacker.get_weapon_fumble()
+
+    is_critical = hit_roll >= critical_threshold
+    is_fumble = hit_roll <= fumble_threshold
+
+    if log is not None:
+        log.append(f"{attacker.name} attacks {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
+
+    if is_fumble:
+        if log is not None:
+            log.append(f"  FUMBLE! {defender.name} gets a free attack!")
+        if allow_free_attack:
+            resolve_hero_vs_hero_attack(defender, attacker, log, allow_free_attack=True)
+        return False, 0, "fumble"
+
+    if hit_roll < hit_needed and not is_critical:
+        if log is not None:
+            log.append("  Miss!")
+        return False, 0, "miss"
+
+    if log is not None:
+        log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
+
+    damage_dice = attacker.get_damage_dice() + attacker.get_bonus_melee_damage_dice()
+    damage, rolls = roll_damage(damage_dice, defender.get_effective_toughness(), is_critical)
+    if log is not None:
+        log.append(f"  Damage roll: {rolls} vs T{defender.get_effective_toughness()} = {damage} wounds")
+
+    hero_ko = apply_damage_to_hero(defender, damage, log, allow_fate=False, source="Madness")
+    if hero_ko and log is not None and defender.is_dead:
+        log.append(f"  {defender.name} has DIED!")
+    return True, damage, "critical" if is_critical else "hit"
+
+
 def resolve_monster_attack(
     attacker: Monster,
     defender: Hero,
@@ -115,6 +232,8 @@ def resolve_monster_attack(
     damage_dice: Optional[int] = None,
     attack_name: str = "attacks",
     allow_free_attack: bool = True,
+    attack_index: int = 0,
+    monster_fate_roll: Optional[Callable[[Monster, str, int, int], bool]] = None,
 ) -> Tuple[bool, int, bool]:
     """
     Resolve a monster melee attack.
@@ -128,8 +247,8 @@ def resolve_monster_attack(
     
     # Roll to hit
     hit_roll = roll_d(12)
-    critical_threshold = attacker.get_critical_threshold()
-    fumble_threshold = attacker.get_fumble_threshold()
+    critical_threshold = attacker.get_attack_critical_threshold(attack_index)
+    fumble_threshold = attacker.get_attack_fumble_threshold(attack_index)
     
     is_critical = hit_roll >= critical_threshold
     is_fumble = hit_roll <= fumble_threshold
@@ -137,12 +256,19 @@ def resolve_monster_attack(
     # Log attack immediately
     if log is not None:
         log.append(f"{attacker.name} {attack_name} {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
+
+    failed_hit_roll = is_fumble or (hit_roll < hit_needed and not is_critical)
+    if failed_hit_roll and monster_fate_roll is not None:
+        if monster_fate_roll(attacker, f"{attack_name} hit roll", hit_roll, hit_needed):
+            hit_roll = hit_needed
+            is_fumble = False
+            is_critical = False
     
     if is_fumble:
         if log is not None:
             log.append(f"  FUMBLE! {defender.name} gets a free attack!")
         if allow_free_attack:
-            resolve_melee_attack(defender, attacker, log, allow_free_attack=False)
+            resolve_melee_attack(defender, attacker, log, allow_free_attack=True, is_free_attack=True)
         return False, 0, False
     
     if hit_roll < hit_needed and not is_critical:
@@ -155,7 +281,7 @@ def resolve_monster_attack(
         log.append(f"  Hit!{(' CRITICAL!' if is_critical else '')}")
     
     # Roll damage
-    attack_damage_dice = damage_dice if damage_dice is not None else attacker.get_damage_dice()
+    attack_damage_dice = damage_dice if damage_dice is not None else attacker.get_attack_damage_dice(attack_index)
     toughness = defender.get_effective_toughness()
     damage, rolls = roll_damage(attack_damage_dice, toughness, is_critical)
     
@@ -163,6 +289,24 @@ def resolve_monster_attack(
         log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
     
     hero_ko = apply_damage_to_hero(defender, damage, log)
+    if hit_roll >= hit_needed and attacker.has_special_rule("cause_disease") and not defender.is_dead:
+        disease_roll = roll_d(12)
+        disease_succeeds = disease_roll >= defender.toughness
+        if not disease_succeeds and monster_fate_roll is not None:
+            disease_succeeds = monster_fate_roll(
+                attacker,
+                "disease roll",
+                disease_roll,
+                defender.toughness,
+            )
+        if disease_succeeds:
+            defender.add_status_effect("diseased", scope="campaign")
+            if log is not None:
+                log.append(
+                    f"  Disease takes root! {defender.name} is diseased ({disease_roll} vs starting T{defender.toughness})."
+                )
+        elif log is not None:
+            log.append(f"  Disease roll {disease_roll} vs starting T{defender.toughness}: resisted.")
     return True, damage, hero_ko
 
 
@@ -172,6 +316,7 @@ def resolve_monster_ranged_attack(
     log: Optional[List[str]] = None,
     partial_obscured: bool = False,
     fumble_target: Optional[Monster] = None,
+    monster_fate_roll: Optional[Callable[[Monster, str, int, int], bool]] = None,
 ) -> Tuple[bool, int, bool]:
     """
     Resolve a monster ranged attack.
@@ -192,6 +337,13 @@ def resolve_monster_ranged_attack(
         log.append(f"{attacker.name} uses {attack_name} on {defender.name}: rolled {hit_roll} (need {hit_needed}+)")
         if partial_obscured:
             log.append("  Target is partially obscured.")
+
+    failed_hit_roll = is_fumble or (hit_roll < hit_needed and not is_critical)
+    if failed_hit_roll and monster_fate_roll is not None:
+        if monster_fate_roll(attacker, f"{attack_name} hit roll", hit_roll, hit_needed):
+            hit_roll = hit_needed
+            is_fumble = False
+            is_critical = False
 
     if is_fumble:
         if fumble_target is not None:
@@ -232,6 +384,7 @@ def resolve_hero_ranged_attack(
     log: Optional[List[str]] = None,
     partial_obscured: bool = False,
     fumble_target: Optional[Hero] = None,
+    magic_ammo_effect: Optional[str] = None,
 ) -> Tuple[bool, int, str]:
     """
     Resolve a hero ranged attack.
@@ -243,16 +396,21 @@ def resolve_hero_ranged_attack(
     weapon_name = weapon.get("name", "ranged weapon")
     hit_needed = get_hit_roll_needed(max(attacker.get_effective_bs(), 1), max(defender.bs, 1))
     hit_roll = roll_d(12)
+    magic_ammo_effect = (magic_ammo_effect or "").strip().lower() or None
     critical_threshold = attacker.get_ranged_critical()
     fumble_threshold = attacker.get_ranged_fumble()
 
-    is_critical = hit_roll >= critical_threshold
-    is_fumble = hit_roll <= fumble_threshold
+    always_hits = magic_ammo_effect == "true_flight"
+    is_critical = (hit_roll >= critical_threshold) and not always_hits
+    is_fumble = (hit_roll <= fumble_threshold) and not always_hits
 
     if log is not None:
-        log.append(
-            f"{attacker.name} shoots {weapon_name} at {defender.name}: rolled {hit_roll} (need {hit_needed}+)"
-        )
+        if always_hits:
+            log.append(f"{attacker.name} shoots {weapon_name} at {defender.name} with true-flight ammunition.")
+        else:
+            log.append(
+                f"{attacker.name} shoots {weapon_name} at {defender.name}: rolled {hit_roll} (need {hit_needed}+)"
+            )
         if partial_obscured:
             log.append("  Target is partially obscured.")
 
@@ -270,7 +428,7 @@ def resolve_hero_ranged_attack(
             log.append("  Miss!")
         return False, 0, "fumble"
 
-    if hit_roll < hit_needed and not is_critical:
+    if hit_roll < hit_needed and not is_critical and not always_hits:
         if log is not None:
             log.append("  Miss!")
         return False, 0, "miss"
@@ -281,8 +439,23 @@ def resolve_hero_ranged_attack(
     toughness = defender.toughness
     if is_critical:
         toughness = max(1, (toughness + 1) // 2)
-    damage, rolls = roll_damage(attacker.get_ranged_damage_dice(), toughness, is_critical)
+    damage_dice = attacker.get_ranged_damage_dice()
+    if magic_ammo_effect == "death":
+        damage_dice += 1
+    if magic_ammo_effect == "assassin":
+        damage, rolls = _roll_assassin_ammo_damage(damage_dice, toughness)
+    else:
+        damage, rolls = roll_damage(damage_dice, toughness, is_critical)
+    weapon = attacker.get_equipped_ranged_weapon() or {}
+    weapon_name = str(weapon.get("name", "")).lower()
+    magical_weapon = bool(magic_ammo_effect) or "magic" in weapon_name or "rune" in weapon_name or "chaos" in weapon_name
+    if defender.has_special_rule("invulnerable") and 12 not in rolls and not magical_weapon:
+        damage = 0
     if log is not None:
+        if magic_ammo_effect == "death":
+            log.append("  Arrows/Bolts of Death add +1 damage die.")
+        elif magic_ammo_effect == "assassin":
+            log.append("  Assassin ammunition causes critical damage on damage rolls of 10+.")
         log.append(f"  Damage roll: {rolls} vs T{toughness} = {damage} wounds")
 
     died = defender.take_damage(damage)
@@ -292,14 +465,41 @@ def resolve_hero_ranged_attack(
     return True, damage, "critical" if is_critical else "hit"
 
 
-def apply_damage_to_hero(defender: Hero, damage: int, log: Optional[List[str]] = None) -> bool:
-    """Apply damage to a hero, including automatic fate use."""
-    hero_ko = False
-    if defender.current_wounds - damage <= 0 and defender.current_fate > 0:
-        if log is not None:
-            log.append(f"  {defender.name} spends a Fate Point to survive!")
-        defender.spend_fate()
+def _roll_assassin_ammo_damage(dice: int, toughness: int) -> Tuple[int, List[int]]:
+    """Roll damage where every 10+ damage roll generates critical follow-up dice."""
+    wounds = 0
+    rolls: List[int] = []
+    dice_to_roll = dice
+    while dice_to_roll > 0:
+        extra_dice = 0
+        for _ in range(dice_to_roll):
+            roll = roll_d(12)
+            rolls.append(roll)
+            if roll >= toughness:
+                wounds += 1
+            if roll >= 10:
+                extra_dice += 1
+        dice_to_roll = extra_dice
+    return wounds, rolls
+
+
+def apply_damage_to_hero(
+    defender: Hero,
+    damage: int,
+    log: Optional[List[str]] = None,
+    *,
+    allow_fate: bool = True,
+    source: str = "attack",
+) -> bool:
+    """Apply damage to a hero, queueing Fate decisions for turn damage when allowed."""
+    if damage <= 0:
         return False
+    defender.record_turn_damage(damage)
+    if allow_fate and defender.current_wounds - damage <= 0 and defender.has_fate_available():
+        defender.queue_fate_decision(defender.damage_taken_this_turn, source=source)
+        if log is not None:
+            log.append(f"  {defender.name} would be slain and may spend a Fate Point to negate all damage suffered this turn.")
+        return True
 
     hero_ko = defender.take_damage(damage)
     if hero_ko:

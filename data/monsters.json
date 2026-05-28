@@ -1,80 +1,261 @@
 {
   "skaven_warrior": {
     "name": "Skaven Warrior",
-    "WS": 4,
-    "BS": 3,
-    "S": 3,
-    "T": 3,
-    "Sp": 5,
+    "WS": 6,
+    "BS": 5,
+    "S": 5,
+    "T": 7,
+    "Sp": 10,
     "Br": 6,
-    "Int": 4,
-    "W": 1,
-    "PV": 2,
-    "weapons": [{"name": "Sword", "damage_dice": 1, "critical": 12, "fumble": 1}],
+    "Int": 6,
+    "W": 3,
+    "PV": 1,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
     "ranged": null,
     "is_sentry": false,
-    "is_character": false
+    "is_character": false,
+    "special_rules": []
+  },
+  "skaven_sentry": {
+    "name": "Skaven Sentry",
+    "WS": 6,
+    "BS": 6,
+    "S": 5,
+    "T": 6,
+    "Sp": 11,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 2,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": true,
+    "is_character": false,
+    "special_rules": []
   },
   "skaven_champion": {
     "name": "Skaven Champion",
-    "WS": 5,
-    "BS": 3,
-    "S": 4,
-    "T": 4,
-    "Sp": 5,
-    "Br": 7,
-    "Int": 5,
-    "W": 2,
-    "PV": 5,
-    "weapons": [{"name": "Halberd", "damage_dice": 1, "critical": 11, "fumble": 1}],
-    "ranged": null,
-    "is_sentry": true,
-    "is_character": false
-  },
-  "skaven_warlord": {
-    "name": "Skaven Warlord",
-    "WS": 6,
-    "BS": 4,
-    "S": 5,
-    "T": 5,
-    "Sp": 6,
+    "WS": 7,
+    "BS": 5,
+    "S": 6,
+    "T": 8,
+    "Sp": 9,
     "Br": 8,
     "Int": 6,
     "W": 3,
-    "PV": 10,
-    "weapons": [{"name": "Runesword", "damage_dice": 2, "critical": 11, "fumble": 1}],
+    "PV": 2,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
     "ranged": null,
     "is_sentry": false,
-    "is_character": true
+    "is_character": false,
+    "special_rules": []
   },
-  "clan_eshin_assassin": {
-    "name": "Clan Eshin Assassin",
-    "WS": 6,
+  "skaven_warlord": {
+    "name": "Skaven Warlord",
+    "WS": 8,
     "BS": 5,
-    "S": 4,
-    "T": 3,
-    "Sp": 7,
-    "Br": 7,
-    "Int": 6,
-    "W": 2,
-    "PV": 8,
-    "weapons": [{"name": "Warpstone Blades", "damage_dice": 2, "critical": 11, "fumble": 1}],
+    "S": 7,
+    "T": 8,
+    "Sp": 9,
+    "Br": 9,
+    "Int": 7,
+    "W": 4,
+    "PV": 6,
+    "weapons": [
+      {"name": "Magic Halberd", "damage_dice": 6, "critical": 12, "fumble": 1}
+    ],
     "ranged": null,
     "is_sentry": false,
-    "is_character": true
+    "is_character": true,
+    "special_rules": []
+  },
+  "skaven_gutter_runner": {
+    "name": "Skaven Gutter Runner",
+    "WS": 6,
+    "BS": 6,
+    "S": 5,
+    "T": 5,
+    "Sp": 12,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 2,
+    "weapons": [
+      {"name": "Poisoned Dagger", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["poisoned_weapon"]
+  },
+  "skaven_night_runner": {
+    "name": "Skaven Night Runner",
+    "WS": 7,
+    "BS": 7,
+    "S": 5,
+    "T": 5,
+    "Sp": 12,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 3,
+    "weapons": [
+      {"name": "Poisoned Dagger", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["poisoned_weapon"]
+  },
+  "skaven_poisoned_wind_globadier": {
+    "name": "Skaven Poisoned Wind Globadier",
+    "WS": 6,
+    "BS": 6,
+    "S": 3,
+    "T": 5,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 6,
+    "weapons": [
+      {"name": "Halberd", "damage_dice": 2, "critical": 11, "fumble": 2}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["special_ranged_attack"]
+  },
+  "skaven_jezzailachis_team": {
+    "name": "Skaven Jezzailachis Team",
+    "WS": 6,
+    "BS": 6,
+    "S": 6,
+    "T": 4,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 6,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["special_ranged_attack"]
+  },
+  "skaven_warpfire_thrower_team": {
+    "name": "Skaven Warpfire-Thrower Team",
+    "WS": 6,
+    "BS": 6,
+    "S": 4,
+    "T": 4,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 10,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["special_ranged_attack"]
+  },
+  "clan_skyre_warpweaver": {
+    "name": "Clan Skryre Warpweaver",
+    "WS": 5,
+    "BS": 6,
+    "S": 4,
+    "T": 5,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 9,
+    "W": 3,
+    "PV": 6,
+    "weapons": [
+      {"name": "Dagger", "damage_dice": 1, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "spellcasting": {
+      "mode": "wizard",
+      "charges": {
+        "Fireball": 1,
+        "Flaming Skull of Terror": 1
+      }
+    },
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": []
+  },
+  "clan_skryre_white_skaven_sorcerer": {
+    "name": "Clan Skryre White Skaven Sorcerer",
+    "WS": 5,
+    "BS": 7,
+    "S": 5,
+    "T": 5,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 10,
+    "W": 4,
+    "PV": 10,
+    "weapons": [
+      {"name": "Dagger", "damage_dice": 1, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "spellcasting": {
+      "mode": "wizard",
+      "charges": {
+        "Choke": 1,
+        "Flaming Skull of Terror": 1,
+        "Fireball": 2
+      }
+    },
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["ring_of_magic_protection"]
+  },
+  "clan_pestilens_plague_censer_bearer": {
+    "name": "Clan Pestilens Plague Censer Bearer",
+    "WS": 6,
+    "BS": 6,
+    "S": 4,
+    "T": 5,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 6,
+    "W": 3,
+    "PV": 6,
+    "weapons": [
+      {"name": "Staff", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["special_attack"]
   },
   "clan_pestilens_plague_monk": {
     "name": "Clan Pestilens Plague Monk",
-    "WS": 5,
-    "BS": 3,
+    "WS": 6,
+    "BS": 6,
     "S": 4,
     "T": 5,
-    "Sp": 5,
-    "Br": 8,
-    "Int": 4,
-    "W": 2,
+    "Sp": 10,
+    "Br": 6,
+    "Int": 8,
+    "W": 3,
     "PV": 6,
-    "weapons": [{"name": "Plague Censer", "damage_dice": 2, "critical": 12, "fumble": 1}],
+    "weapons": [
+      {"name": "Dagger", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
     "ranged": null,
     "spellcasting": {
       "mode": "warpscroll",
@@ -85,61 +266,553 @@
       "charge_turns": 0
     },
     "is_sentry": false,
-    "is_character": true
+    "is_character": true,
+    "special_rules": []
   },
-  "clan_skyre_warpweaver": {
-    "name": "Clan Skyre Warpweaver",
-    "WS": 3,
-    "BS": 4,
-    "S": 2,
-    "T": 2,
-    "Sp": 5,
-    "Br": 5,
+  "clan_mors_warlord": {
+    "name": "Clan Mors Warlord",
+    "WS": 10,
+    "BS": 5,
+    "S": 9,
+    "T": 8,
+    "Sp": 9,
+    "Br": 9,
     "Int": 7,
+    "W": 4,
+    "PV": 10,
+    "weapons": [
+      {"name": "Runesword", "damage_dice": 7, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": []
+  },
+  "clan_eshin_assassin": {
+    "name": "Clan Eshin Assassin",
+    "WS": 9,
+    "BS": 9,
+    "S": 5,
+    "T": 7,
+    "Sp": 12,
+    "Br": 9,
+    "Int": 7,
+    "W": 4,
+    "PV": 8,
+    "weapons": [
+      {"name": "Poisoned Dagger", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["poisoned_weapon"]
+  },
+  "praznagar_prince_of_agony": {
+    "name": "Praznagar, Prince of Agony",
+    "WS": 9,
+    "BS": 7,
+    "S": 8,
+    "T": 8,
+    "Sp": 9,
+    "Br": 9,
+    "Int": 9,
+    "W": 5,
+    "PV": 12,
+    "weapons": [
+      {"name": "Chaos Sword", "damage_dice": 6, "critical": 12, "fumble": 0}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["fearsome_monster", "never_fumbles"]
+  },
+  "goblin": {
+    "name": "Goblin",
+    "WS": 5,
+    "BS": 5,
+    "S": 4,
+    "T": 5,
+    "Sp": 6,
+    "Br": 5,
+    "Int": 5,
     "W": 2,
+    "PV": 0.5,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "goblin_archer": {
+    "name": "Goblin Archer",
+    "WS": 5,
+    "BS": 5,
+    "S": 4,
+    "T": 5,
+    "Sp": 6,
+    "Br": 5,
+    "Int": 5,
+    "W": 2,
+    "PV": 0.5,
+    "weapons": [
+      {"name": "Dagger", "damage_dice": 1, "critical": 12, "fumble": 1}
+    ],
+    "ranged": {
+      "name": "Short Bow",
+      "damage_dice": 3,
+      "max_range": 24,
+      "critical": 12,
+      "fumble": 1,
+      "notes": "No crit at this range"
+    },
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "orc": {
+    "name": "Orc",
+    "WS": 6,
+    "BS": 5,
+    "S": 5,
+    "T": 8,
+    "Sp": 6,
+    "Br": 7,
+    "Int": 5,
+    "W": 4,
+    "PV": 1,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "orc_champion": {
+    "name": "Orc Champion",
+    "WS": 7,
+    "BS": 5,
+    "S": 6,
+    "T": 8,
+    "Sp": 5,
+    "Br": 8,
+    "Int": 5,
+    "W": 4,
+    "PV": 2,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "orc_warlord": {
+    "name": "Orc Warlord",
+    "WS": 8,
+    "BS": 5,
+    "S": 6,
+    "T": 9,
+    "Sp": 6,
+    "Br": 9,
+    "Int": 6,
+    "W": 4,
+    "PV": 6,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": []
+  },
+  "chaos_thug": {
+    "name": "Chaos Thug",
+    "WS": 7,
+    "BS": 5,
+    "S": 5,
+    "T": 7,
+    "Sp": 7,
+    "Br": 8,
+    "Int": 6,
+    "W": 3,
+    "PV": 1,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "chaos_warrior": {
+    "name": "Chaos Warrior",
+    "WS": 8,
+    "BS": 4,
+    "S": 6,
+    "T": 9,
+    "Sp": 6,
+    "Br": 9,
+    "Int": 8,
+    "W": 4,
+    "PV": 4,
+    "weapons": [
+      {"name": "Axe", "damage_dice": 6, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": []
+  },
+  "chaos_champion": {
+    "name": "Chaos Champion",
+    "WS": 10,
+    "BS": 4,
+    "S": 6,
+    "T": 10,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 8,
+    "W": 4,
+    "PV": 8,
+    "weapons": [
+      {"name": "Double-Handed Axe", "damage_dice": 5, "critical": 11, "fumble": 2}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": []
+  },
+  "zombie": {
+    "name": "Zombie",
+    "WS": 6,
+    "BS": 1,
+    "S": 5,
+    "T": 4,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 2,
+    "W": 3,
+    "PV": 1,
+    "weapons": [
+      {"name": "Cleaver", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["fearsome_monster"]
+  },
+  "skeleton": {
+    "name": "Skeleton",
+    "WS": 6,
+    "BS": 4,
+    "S": 5,
+    "T": 5,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 2,
+    "W": 3,
+    "PV": 2,
+    "weapons": [
+      {"name": "Scythe", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["fearsome_monster", "long_reach"]
+  },
+  "mummy": {
+    "name": "Mummy",
+    "WS": 7,
+    "BS": 1,
+    "S": 6,
+    "T": 8,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 5,
+    "W": 4,
+    "PV": 10,
+    "weapons": [
+      {"name": "Claws", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["cause_disease", "fearsome_monster"]
+  },
+  "fimir": {
+    "name": "Fimir",
+    "WS": 6,
+    "BS": 2,
+    "S": 5,
+    "T": 7,
+    "Sp": 6,
+    "Br": 8,
+    "Int": 5,
+    "W": 4,
     "PV": 7,
-    "weapons": [{"name": "Dagger", "damage_dice": 1, "critical": 12, "fumble": 1}],
-    "ranged": {"name": "Warp-lightning", "range": 12, "damage_dice": 2},
+    "weapons": [
+      {"name": "Axe", "damage_dice": 3, "critical": 12, "fumble": 1},
+      {"name": "Axe", "damage_dice": 2, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["two_attacks"]
+  },
+  "ogre": {
+    "name": "Ogre",
+    "WS": 7,
+    "BS": 3,
+    "S": 8,
+    "T": 8,
+    "Sp": 7,
+    "Br": 7,
+    "Int": 4,
+    "W": 9,
+    "PV": 8,
+    "weapons": [
+      {"name": "Huge Club", "damage_dice": 8, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["fearsome_monster", "large_monster"]
+  },
+  "troll": {
+    "name": "Troll",
+    "WS": 5,
+    "BS": 1,
+    "S": 9,
+    "T": 8,
+    "Sp": 7,
+    "Br": 6,
+    "Int": 4,
+    "W": 9,
+    "PV": 9,
+    "weapons": [
+      {"name": "Huge Club", "damage_dice": 9, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["fearsome_monster", "large_monster", "regenerates"]
+  },
+  "minotaur": {
+    "name": "Minotaur",
+    "WS": 7,
+    "BS": 4,
+    "S": 7,
+    "T": 8,
+    "Sp": 8,
+    "Br": 8,
+    "Int": 4,
+    "W": 9,
+    "PV": 9,
+    "weapons": [
+      {"name": "Huge Club", "damage_dice": 7, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": false,
+    "special_rules": ["berserker", "fearsome_monster", "large_monster"]
+  },
+  "bloodthirster": {
+    "name": "Bloodthirster",
+    "WS": 5,
+    "BS": 3,
+    "S": 8,
+    "T": 10,
+    "Sp": 10,
+    "Br": 8,
+    "Int": 5,
+    "W": 6,
+    "PV": 12,
+    "weapons": [
+      {"name": "Claws", "damage_dice": 6, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["invulnerable", "flight", "fearsome_monster", "large_monster"]
+  },
+  "chaos_lord": {
+    "name": "Chaos Lord",
+    "WS": 12,
+    "BS": 3,
+    "S": 6,
+    "T": 10,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 8,
+    "W": 5,
+    "PV": 12,
+    "weapons": [
+      {"name": "Axe", "damage_dice": 4, "critical": 12, "fumble": 1},
+      {"name": "Axe", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["two_attacks"]
+  },
+  "daemonette": {
+    "name": "Daemonette",
+    "WS": 8,
+    "BS": 1,
+    "S": 5,
+    "T": 7,
+    "Sp": 10,
+    "Br": 10,
+    "Int": 6,
+    "W": 4,
+    "PV": 12,
+    "weapons": [
+      {"name": "Claws", "damage_dice": 3, "critical": 12, "fumble": 1},
+      {"name": "Claws", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
     "spellcasting": {
       "mode": "wizard",
       "charges": {
+        "Flaming Skull of Terror": 1
+      }
+    },
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["fearsome_monster", "invulnerable", "two_attacks"]
+  },
+  "undead_champion": {
+    "name": "Undead Champion",
+    "WS": 8,
+    "BS": 1,
+    "S": 6,
+    "T": 8,
+    "Sp": 6,
+    "Br": 10,
+    "Int": 3,
+    "W": 4,
+    "PV": 6,
+    "weapons": [
+      {"name": "Sword", "damage_dice": 4, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["fearsome_monster"]
+  },
+  "greater_daemon_of_tzeentch": {
+    "name": "Greater Daemon of Tzeentch",
+    "WS": 7,
+    "BS": 1,
+    "S": 8,
+    "T": 9,
+    "Sp": 8,
+    "Br": 10,
+    "Int": 12,
+    "W": 10,
+    "PV": 20,
+    "weapons": [
+      {"name": "Claws", "damage_dice": 6, "critical": 12, "fumble": 1},
+      {"name": "Claws", "damage_dice": 6, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "spellcasting": {
+      "mode": "wizard",
+      "charges": {
+        "Choke": 2,
+        "Fireball": 2,
+        "Flaming Skull of Terror": 2
+      }
+    },
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["fearsome_monster", "invulnerable", "large_monster", "two_attacks"]
+  },
+  "minotaur_lord": {
+    "name": "Minotaur Lord",
+    "WS": 9,
+    "BS": 4,
+    "S": 8,
+    "T": 9,
+    "Sp": 8,
+    "Br": 9,
+    "Int": 6,
+    "W": 10,
+    "PV": 11,
+    "weapons": [
+      {"name": "Huge Club", "damage_dice": 8, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": ["berserker", "fearsome_monster", "large_monster"]
+  },
+  "chaos_sorcerer": {
+    "name": "Chaos Sorcerer",
+    "WS": 7,
+    "BS": 3,
+    "S": 5,
+    "T": 7,
+    "Sp": 8,
+    "Br": 9,
+    "Int": 10,
+    "W": 4,
+    "PV": 11,
+    "weapons": [
+      {"name": "Scythe", "damage_dice": 3, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "spellcasting": {
+      "mode": "wizard",
+      "charges": {
+        "Choke": 1,
         "Fireball": 1,
         "Flaming Skull of Terror": 1
       }
     },
     "is_sentry": false,
-    "is_character": true
+    "is_character": true,
+    "special_rules": ["long_reach"]
   },
-  "giant_rat": {
-    "name": "Giant Rat",
-    "WS": 2,
-    "BS": 0,
-    "S": 2,
-    "T": 2,
+  "orc_warchief": {
+    "name": "Orc Warchief",
+    "WS": 9,
+    "BS": 3,
+    "S": 6,
+    "T": 9,
     "Sp": 6,
-    "Br": 2,
-    "Int": 1,
-    "W": 1,
-    "PV": 1,
-    "weapons": [{"name": "Teeth", "damage_dice": 1, "critical": 12, "fumble": 1}],
-    "ranged": null,
-    "is_sentry": false,
-    "is_character": false
-  },
-  "rat_ogre": {
-    "name": "Rat Ogre",
-    "WS": 4,
-    "BS": 2,
-    "S": 5,
-    "T": 5,
-    "Sp": 6,
-    "Br": 5,
-    "Int": 2,
+    "Br": 10,
+    "Int": 7,
     "W": 4,
     "PV": 8,
-    "weapons": [{"name": "Claws", "damage_dice": 2, "critical": 12, "fumble": 1}],
+    "weapons": [
+      {"name": "Double-Handed Weapon", "damage_dice": 3, "critical": 11, "fumble": 2}
+    ],
     "ranged": null,
     "is_sentry": false,
-    "is_character": false
+    "is_character": true,
+    "special_rules": []
+  },
+  "ogre_chieftain": {
+    "name": "Ogre Chieftain",
+    "WS": 9,
+    "BS": 1,
+    "S": 9,
+    "T": 10,
+    "Sp": 5,
+    "Br": 8,
+    "Int": 6,
+    "W": 10,
+    "PV": 10,
+    "weapons": [
+      {"name": "Huge Sword", "damage_dice": 9, "critical": 12, "fumble": 1}
+    ],
+    "ranged": null,
+    "is_sentry": false,
+    "is_character": true,
+    "special_rules": []
   }
 }

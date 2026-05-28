@@ -4,17 +4,31 @@ from dataclasses import dataclass
 from typing import Optional, List, Tuple, TYPE_CHECKING
 import random
 from hazards import (
+    choose_lower_room_entry_tile,
+    choose_lower_room_exit_tile,
     get_hazard_anchor,
+    get_lower_room_for_hero,
     get_room_for_hero,
     is_adjacent_or_same,
+    lower_room_entry_available,
+    lower_room_exit_available,
     resolve_chasm_leap,
+    resolve_chasm_sensible_leap,
+    resolve_build_chasm_rope_ladder,
+    resolve_cross_chasm_rope_ladder,
     resolve_crypt_search,
     resolve_eat_mushroom,
     resolve_fight_bats,
     resolve_fight_rats,
+    resolve_flames_of_death_hazard,
     resolve_grate_room,
+    resolve_enter_lower_room,
+    resolve_leave_lower_room,
     resolve_mould_crossing,
     resolve_pool_drink,
+    resolve_use_greek_fire,
+    resolve_use_rat_poison,
+    resolve_use_screetch_bug,
     resolve_recruit_rogue,
     resolve_release_man_at_arms,
     resolve_rescue_maiden,
@@ -185,24 +199,76 @@ def _get_secret_searchable_walls(hero: "Hero", dungeon: "Dungeon") -> List[Tuple
     if room is not None:
         if not _room_allows_secret_search(dungeon, room):
             return []
+        candidate_starts = {(hero.x, hero.y)}
         allowed_wall = lambda pos: True
     else:
         dead_end = _get_dead_end_search_context(hero, dungeon)
         if dead_end is None:
             return []
+        candidate_starts = set(dead_end["section"])
         allowed_wall = lambda pos: _is_searchable_dead_end_wall(hero, pos, dead_end["orientation"])
 
-    searchable = []
-    for dx, dy in ORTHOGONAL_DIRECTIONS:
-        wall_pos = (hero.x + dx, hero.y + dy)
-        if dungeon.get_tile(*wall_pos) != dungeon.TileType.WALL:
-            continue
-        if wall_pos in getattr(dungeon, "secret_door_searches", set()):
-            continue
-        if not allowed_wall(wall_pos):
-            continue
-        searchable.append(wall_pos)
-    return searchable
+    searchable = set()
+    for start_x, start_y in candidate_starts:
+        for dx, dy in ORTHOGONAL_DIRECTIONS:
+            wall_pos = (start_x + dx, start_y + dy)
+            if dungeon.get_tile(*wall_pos) != dungeon.TileType.WALL:
+                continue
+            if wall_pos in getattr(dungeon, "secret_door_searches", set()):
+                continue
+            if not allowed_wall(wall_pos):
+                continue
+            searchable.add(wall_pos)
+    return sorted(searchable)
+
+
+def _resolve_secret_search_roll(hero: "Hero", dungeon: "Dungeon", game, wall_pos: Tuple[int, int]) -> ActionResult:
+    """Resolve the actual AHQ secret-door search roll against a chosen wall section."""
+    dungeon.secret_door_searches.add(wall_pos)
+
+    roll = random.randint(1, 12)
+    if roll == 1:
+        game._draw_dungeon_counter("Searching for secret doors.")
+        return ActionResult(
+            success=True,
+            message=f"Search roll: {roll}. The wall holds no secret door.",
+            end_turn=True
+        )
+    if 2 <= roll <= 6:
+        return ActionResult(
+            success=True,
+            message=f"Search roll: {roll}. No secret door found.",
+            end_turn=True
+        )
+
+    dungeon.grid[wall_pos] = dungeon.TileType.DOOR_CLOSED
+    dungeon.doors[wall_pos] = {"is_open": False, "from_room": True}
+    return ActionResult(
+        success=True,
+        message=f"Search roll: {roll}. Secret door found at {wall_pos}!",
+        end_turn=True
+    )
+
+
+def resolve_pending_secret_search(hero: "Hero", dungeon: "Dungeon", game, wall_pos: Tuple[int, int]) -> str:
+    """Resolve a board-targeted secret-door search choice."""
+    if not _hero_started_turn_in_search_area(hero, dungeon, game):
+        game.pending_board_action = None
+        return "A hero must start the exploration turn in the same room or dead end to search for secret doors."
+
+    wall_options = set(_get_secret_searchable_walls(hero, dungeon))
+    if wall_pos not in wall_options:
+        return "Choose a searchable wall section."
+
+    result = _resolve_secret_search_roll(hero, dungeon, game, wall_pos)
+    game.pending_board_action = None
+    if result.end_turn:
+        game.hero_movement_remaining[hero.id] = 0
+    if result.trigger_combat:
+        game.current_phase = "COMBAT"
+        game.mode = "COMBAT"
+    game.save_game()
+    return result.message
 
 
 class OpenDoorAction(DungeonAction):
@@ -316,6 +382,38 @@ class OpenChestAction(DungeonAction):
         return ActionResult(False, "No closed chest adjacent")
 
 
+class CollectChestTreasureAction(DungeonAction):
+    """Collect recorded left-behind treasure from an adjacent tile."""
+
+    name = "Collect Treasure"
+    icon = "$"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            tx, ty = hero.x + dx, hero.y + dy
+            if dungeon.get_tile(tx, ty) == dungeon.TileType.TREASURE_OPEN:
+                room = dungeon.find_room_for_tile(hero.x, hero.y)
+                if room and int(room.get("left_behind_gold", 0)) > 0:
+                    return True
+                game_state = getattr(dungeon, "game_state", None)
+                if game_state and game_state.get_left_behind_treasure_at((tx, ty)):
+                    return True
+        return False
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        for dx, dy in ORTHOGONAL_DIRECTIONS + [(0, 0)]:
+            tx, ty = hero.x + dx, hero.y + dy
+            if game.get_left_behind_treasure_at((tx, ty)):
+                return ActionResult(
+                    success=True,
+                    message=game.collect_left_behind_treasure_at(hero, (tx, ty)),
+                    end_turn=True,
+                )
+        return ActionResult(False, "No opened chest with treasure nearby")
+
+
 class LiftPortcullisAction(DungeonAction):
     """Lift a visible portcullis trap for the rest of the hero phase."""
 
@@ -418,32 +516,15 @@ class SearchSecretsAction(DungeonAction):
         wall_options = _get_secret_searchable_walls(hero, dungeon)
         if not wall_options:
             return ActionResult(False, "Secret-door searches are only allowed in dead ends or rooms with only the entrance door.")
+        if len(wall_options) > 1:
+            game.pending_board_action = {
+                "type": "secret_door_search",
+                "hero_id": hero.id,
+                "wall_positions": [[x, y] for x, y in wall_options],
+            }
+            return ActionResult(True, "Choose a wall section to search for a secret door.", end_turn=False)
 
-        wall_pos = wall_options[0]
-        dungeon.secret_door_searches.add(wall_pos)
-
-        roll = random.randint(1, 12)
-        if roll == 1:
-            game._draw_dungeon_counter("Searching for secret doors.")
-            return ActionResult(
-                success=True,
-                message=f"Search roll: {roll}. The wall holds no secret door.",
-                end_turn=True
-            )
-        elif 2 <= roll <= 6:
-            return ActionResult(
-                success=True,
-                message=f"Search roll: {roll}. No secret door found.",
-                end_turn=True
-            )
-        else:  # 7-12
-            dungeon.grid[wall_pos] = dungeon.TileType.DOOR_CLOSED
-            dungeon.doors[wall_pos] = {"is_open": False, "from_room": True}
-            return ActionResult(
-                success=True,
-                message=f"Search roll: {roll}. Secret door found at {wall_pos}!",
-                end_turn=True
-            )
+        return _resolve_secret_search_roll(hero, dungeon, game, wall_options[0])
 
 
 class SearchTreasureAction(DungeonAction):
@@ -499,16 +580,25 @@ class SearchTreasureAction(DungeonAction):
             # Gold cache: D6 × 5
             gold_roll = random.randint(1, 6)
             gold_amount = gold_roll * 5
-            hero.gold += gold_amount
-            game.gold_found += gold_amount
+            awarded, left = game.award_party_gold(gold_amount, "hidden treasure", note_pos=(hero.x, hero.y))
             return ActionResult(
                 success=True,
-                message=f"Treasure search roll: {total} ({roll1}+{roll2}). Found {gold_amount} gold coins!",
+                message=(
+                    f"Treasure search roll: {total} ({roll1}+{roll2}). "
+                    f"Found {awarded} gold coins!"
+                    + (f" {left} must be left behind." if left > 0 else "")
+                ),
                 end_turn=True
             )
         else:  # 17-24
             treasure_log: List[str] = []
-            item = generate_magic_treasure(hero, treasure_log)
+            item = generate_magic_treasure(
+                hero,
+                treasure_log,
+                game=game,
+                source="hidden treasure",
+                note_pos=(hero.x, hero.y),
+            )
             for entry in treasure_log:
                 game.combat_log.append(entry)
             game.hero_manager.update_hero(hero)
@@ -620,6 +710,32 @@ class SearchCryptAction(DungeonAction):
         return ActionResult(True, resolve_crypt_search(hero, room, game), end_turn=True, trigger_combat=game.mode == "COMBAT")
 
 
+class EnterMazeSubLevelAction(DungeonAction):
+    """Enter a Heroquest maze sub-level opened by a trapdoor."""
+
+    name = "Enter Maze"
+    icon = "MZ"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        if hazard.get("type") != "trapdoor" or hazard.get("opened_result") != "maze":
+            return False
+        if not hazard.get("maze_sub_level_available") or hazard.get("maze_sub_level_entered"):
+            return False
+        return is_adjacent_or_same(hero, get_hazard_anchor(room), dungeon)
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the hazard room to enter the maze")
+        return ActionResult(True, game.enter_heroquest_maze_sub_level(hero, room), end_turn=True)
+
+
 class FightRatsAction(DungeonAction):
     """Fight through a room full of rats."""
 
@@ -642,6 +758,80 @@ class FightRatsAction(DungeonAction):
         return ActionResult(True, resolve_fight_rats(hero, room, game), end_turn=True)
 
 
+class RatPoisonAction(DungeonAction):
+    """Use Rat Poison to clear a rats hazard room."""
+
+    name = "Use Rat Poison"
+    icon = "RP"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        return hazard.get("type") == "rats" and not hazard.get("resolved", False) and hero.get_inventory_count("rat_poison") > 0
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the rats room to use Rat Poison")
+        return ActionResult(True, resolve_use_rat_poison(hero, room, game), end_turn=True)
+
+
+class GreekFireAction(DungeonAction):
+    """Use Greek Fire to clear certain hazard rooms."""
+
+    name = "Use Greek Fire"
+    icon = "GF"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        hazard_type = hazard.get("type")
+        if hazard_type not in {"rats", "bats", "mould"} or hazard.get("resolved", False):
+            return False
+        needed = 2 if hazard_type in {"rats", "bats"} else 1
+        return hero.get_inventory_count("greek_fire_flask") >= needed
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the hazard room to use Greek Fire")
+        return ActionResult(True, resolve_use_greek_fire(hero, room, game), end_turn=True)
+
+
+class FlamesOfDeathHazardAction(DungeonAction):
+    """Use Flames of Death to clear rats or bats."""
+
+    name = "Flames of Death"
+    icon = "FD"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        if hazard.get("type") not in {"rats", "bats"} or hazard.get("resolved", False):
+            return False
+        return hero.is_wizard() and hero.can_cast_spells() and hero.knows_spell("Flames of Death") and (
+            hero.free_spell_cast > 0 or hero.has_spell_components("Flames of Death")
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the hazard room to cast Flames of Death")
+        return ActionResult(True, resolve_flames_of_death_hazard(hero, room, game), end_turn=True)
+
+
 class FightBatsAction(DungeonAction):
     """Fight through a room full of bats."""
 
@@ -662,6 +852,28 @@ class FightBatsAction(DungeonAction):
         if not room:
             return ActionResult(False, "Must be in the bats room to fight them")
         return ActionResult(True, resolve_fight_bats(hero, room, game), end_turn=True)
+
+
+class ScreetchBugAction(DungeonAction):
+    """Use a Screetch Bug to clear a bats hazard room."""
+
+    name = "Use Screetch Bug"
+    icon = "SB"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        return hazard.get("type") == "bats" and not hazard.get("resolved", False) and hero.get_inventory_count("screetch_bug") > 0
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the bats room to use a Screetch Bug")
+        return ActionResult(True, resolve_use_screetch_bug(hero, room, game), end_turn=True)
 
 
 class CrossMouldAction(DungeonAction):
@@ -743,6 +955,96 @@ class LeapChasmAction(DungeonAction):
         return ActionResult(True, resolve_chasm_leap(hero, room, game), end_turn=True)
 
 
+class SensibleLeapChasmAction(DungeonAction):
+    """Attempt a rope-secured leap across a chasm."""
+
+    name = "Sensible Leap"
+    icon = "RL"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        if hazard.get("type") != "chasm" or hazard.get("rope_ladder_built"):
+            return False
+        anchor = get_hazard_anchor(room)
+        if anchor is None:
+            return False
+        dx = anchor[0] - hero.x
+        dy = anchor[1] - hero.y
+        if abs(dx) + abs(dy) != 1:
+            return False
+        landing = (anchor[0] + dx, anchor[1] + dy)
+        return dungeon.is_walkable(*landing)
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the chasm room to make a sensible leap")
+        return ActionResult(True, resolve_chasm_sensible_leap(hero, room, game), end_turn=True)
+
+
+class BuildChasmRopeLadderAction(DungeonAction):
+    """Build a rope ladder across a chasm."""
+
+    name = "Build Rope Ladder"
+    icon = "LD"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        return (
+            hazard.get("type") == "chasm"
+            and hazard.get("sensible_leap_success", False)
+            and not hazard.get("rope_ladder_built", False)
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the chasm room to build a rope ladder")
+        return ActionResult(True, resolve_build_chasm_rope_ladder(hero, room, game), end_turn=True)
+
+
+class CrossChasmRopeLadderAction(DungeonAction):
+    """Cross a completed rope ladder across a chasm."""
+
+    name = "Cross Rope Ladder"
+    icon = "LD"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        if not room or room.get("room_kind") != "hazard":
+            return False
+        hazard = room.get("hazard") or {}
+        if hazard.get("type") != "chasm" or not hazard.get("rope_ladder_built", False):
+            return False
+        anchor = get_hazard_anchor(room)
+        if anchor is None:
+            return False
+        dx = anchor[0] - hero.x
+        dy = anchor[1] - hero.y
+        if abs(dx) + abs(dy) != 1:
+            return False
+        landing = (anchor[0] + dx, anchor[1] + dy)
+        return dungeon.is_walkable(*landing)
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the chasm room to cross the rope ladder")
+        return ActionResult(True, resolve_cross_chasm_rope_ladder(hero, room, game), end_turn=True)
+
+
 class InspectGrateAction(DungeonAction):
     """Inspect and lift a grate hazard."""
 
@@ -770,6 +1072,54 @@ class InspectGrateAction(DungeonAction):
             end_turn=True,
             trigger_combat=game.mode == "COMBAT",
         )
+
+
+class EnterLowerRoomAction(DungeonAction):
+    """Climb down into a revealed lower room."""
+
+    name = "Enter Lower Room"
+    icon = "DN"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_room_for_hero(hero, dungeon)
+        game_state = getattr(dungeon, "game_state", None)
+        if not room or game_state is None:
+            return False
+        allowed, _ = lower_room_entry_available(hero, room, game_state)
+        return allowed and choose_lower_room_entry_tile(hero, room, game_state) is not None
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be by the grate or trapdoor opening")
+        landing = choose_lower_room_entry_tile(hero, room, game)
+        return ActionResult(True, resolve_enter_lower_room(hero, room, game, landing=landing), end_turn=True)
+
+
+class LeaveLowerRoomAction(DungeonAction):
+    """Climb out of a lower room."""
+
+    name = "Leave Lower Room"
+    icon = "UP"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        room = get_lower_room_for_hero(hero, dungeon)
+        game_state = getattr(dungeon, "game_state", None)
+        if not room or game_state is None:
+            return False
+        allowed, _ = lower_room_exit_available(hero, room, game_state)
+        return allowed and choose_lower_room_exit_tile(hero, room, game_state) is not None
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        room = get_lower_room_for_hero(hero, dungeon)
+        if not room:
+            return ActionResult(False, "Must be in the lower room")
+        landing = choose_lower_room_exit_tile(hero, room, game)
+        return ActionResult(True, resolve_leave_lower_room(hero, room, game, landing=landing), end_turn=True)
 
 
 class RescueMaidenAction(DungeonAction):
@@ -892,10 +1242,67 @@ class PutOnArmourAction(DungeonAction):
         return ActionResult(True, f"{hero.name} puts on {', '.join(equipped)}.", end_turn=True)
 
 
+class DrinkHealingPotionAction(DungeonAction):
+    """Drink a healing potion during exploration."""
+
+    name = "Drink Healing Potion"
+    icon = "HP"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        return (
+            (not hero.is_ko)
+            and hero.has_usable_healing_potion()
+            and hero.current_wounds < hero.max_wounds
+            and not hero.has_pending_healing_potion()
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        return ActionResult(True, game.drink_healing_potion(hero), end_turn=True)
+
+
+class DrinkStrengthPotionAction(DungeonAction):
+    """Drink a strength potion at the start of an exploration turn."""
+
+    name = "Drink Strength Potion"
+    icon = "SP"
+
+    @classmethod
+    def is_available(cls, hero: "Hero", dungeon: "Dungeon") -> bool:
+        game_state = getattr(dungeon, "game_state", None)
+        if game_state is not None:
+            allowed, _ = game_state.can_drink_strength_potion(hero)
+            return allowed
+        return any(
+            item.get("type") == "potion" and item.get("potion_effect") == "strength"
+            for item in hero.equipment
+        )
+
+    @classmethod
+    def execute(cls, hero: "Hero", dungeon: "Dungeon", game) -> ActionResult:
+        allowed, message = game.can_drink_strength_potion(hero)
+        if not allowed:
+            return ActionResult(False, message)
+        return ActionResult(True, game.drink_strength_potion(hero), end_turn=False)
+
+
+
 def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
     """Get list of available action classes for the hero."""
-    if hero.is_under_gm_control():
+    if hero.is_under_gm_control() or hero.is_restrained_by_mindstealer():
         return []
+    game_state = getattr(dungeon, "game_state", None)
+    if game_state is not None:
+        game_state.ensure_phase_consistency()
+        if game_state.current_phase == "EXPLORATION":
+            game_state._enter_combat_if_monsters_visible()
+        if game_state.has_pending_fate_decision():
+            return []
+        if game_state.current_phase != "EXPLORATION":
+            return []
+        if game_state.hero_movement_remaining.get(hero.id, 0) <= 0:
+            return []
 
     actions = []
     
@@ -907,6 +1314,9 @@ def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
 
     if OpenChestAction.is_available(hero, dungeon):
         actions.append(OpenChestAction)
+
+    if CollectChestTreasureAction.is_available(hero, dungeon):
+        actions.append(CollectChestTreasureAction)
 
     if LiftPortcullisAction.is_available(hero, dungeon):
         actions.append(LiftPortcullisAction)
@@ -929,6 +1339,13 @@ def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
     if PutOnArmourAction.is_available(hero, dungeon):
         actions.append(PutOnArmourAction)
 
+    if DrinkHealingPotionAction.is_available(hero, dungeon):
+        actions.append(DrinkHealingPotionAction)
+
+    if DrinkStrengthPotionAction.is_available(hero, dungeon):
+        actions.append(DrinkStrengthPotionAction)
+
+
     if DrinkPoolAction.is_available(hero, dungeon):
         actions.append(DrinkPoolAction)
 
@@ -941,11 +1358,26 @@ def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
     if SearchCryptAction.is_available(hero, dungeon):
         actions.append(SearchCryptAction)
 
+    if EnterMazeSubLevelAction.is_available(hero, dungeon):
+        actions.append(EnterMazeSubLevelAction)
+
     if FightRatsAction.is_available(hero, dungeon):
         actions.append(FightRatsAction)
 
+    if RatPoisonAction.is_available(hero, dungeon):
+        actions.append(RatPoisonAction)
+
+    if GreekFireAction.is_available(hero, dungeon):
+        actions.append(GreekFireAction)
+
+    if FlamesOfDeathHazardAction.is_available(hero, dungeon):
+        actions.append(FlamesOfDeathHazardAction)
+
     if FightBatsAction.is_available(hero, dungeon):
         actions.append(FightBatsAction)
+
+    if ScreetchBugAction.is_available(hero, dungeon):
+        actions.append(ScreetchBugAction)
 
     if CrossMouldAction.is_available(hero, dungeon):
         actions.append(CrossMouldAction)
@@ -956,8 +1388,23 @@ def get_available_actions(hero: "Hero", dungeon: "Dungeon") -> List[type]:
     if LeapChasmAction.is_available(hero, dungeon):
         actions.append(LeapChasmAction)
 
+    if SensibleLeapChasmAction.is_available(hero, dungeon):
+        actions.append(SensibleLeapChasmAction)
+
+    if BuildChasmRopeLadderAction.is_available(hero, dungeon):
+        actions.append(BuildChasmRopeLadderAction)
+
+    if CrossChasmRopeLadderAction.is_available(hero, dungeon):
+        actions.append(CrossChasmRopeLadderAction)
+
     if InspectGrateAction.is_available(hero, dungeon):
         actions.append(InspectGrateAction)
+
+    if EnterLowerRoomAction.is_available(hero, dungeon):
+        actions.append(EnterLowerRoomAction)
+
+    if LeaveLowerRoomAction.is_available(hero, dungeon):
+        actions.append(LeaveLowerRoomAction)
 
     if RescueMaidenAction.is_available(hero, dungeon):
         actions.append(RescueMaidenAction)
